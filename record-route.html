@@ -1,0 +1,280 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Augmentum · Record route</title>
+<!--
+  Researcher tool: walk/ride a corridor once, drop waypoints, export a route.
+  Deliberately plain — this is never shown to a rider, so it borrows nothing
+  from style.css. It does reuse CUE_LABEL / SEG_LABEL / CUE_ROT from render.js
+  so the picker options and rotation values can't drift from the display layer.
+-->
+<script src="glyphs.js"></script>
+<script src="render.js"></script>
+<style>
+  *{box-sizing:border-box}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+    max-width:520px;margin:0 auto;padding:20px 18px 80px;color:#111;background:#fff}
+  h1{font-size:19px;margin:0 0 4px}
+  .sub{font-size:13px;color:#666;margin-bottom:20px}
+  section{border:1px solid #ddd;border-radius:8px;padding:14px 16px;margin-bottom:16px}
+  h2{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#888;margin:0 0 10px}
+
+  .accRow{display:flex;align-items:baseline;gap:8px}
+  .accNum{font-size:32px;font-weight:700;font-variant-numeric:tabular-nums}
+  .accUnit{font-size:14px;color:#666}
+  .accWarn{margin-top:6px;font-size:13px;font-weight:600;color:#a33;display:none}
+  .accWarn.on{display:block}
+  .accOk{margin-top:6px;font-size:13px;color:#2a7a2a}
+  .accErr{margin-top:6px;font-size:13px;color:#a33}
+
+  button{font:inherit;cursor:pointer}
+  .dropBtn{display:block;width:100%;padding:20px;font-size:17px;font-weight:700;
+    background:#111;color:#fff;border:none;border-radius:10px}
+  .dropBtn:disabled{background:#999}
+  .dropBtn:active{background:#333}
+
+  .field{margin-bottom:12px}
+  .field label{display:block;font-size:12px;color:#555;margin-bottom:4px}
+  .field select, .field input[type=text]{width:100%;padding:8px;font-size:14px;
+    border:1px solid #ccc;border-radius:6px}
+  .radioRow{display:flex;gap:14px}
+  .radioRow label{display:flex;align-items:center;gap:5px;font-size:14px;color:#111}
+  .formBtns{display:flex;gap:8px;margin-top:14px}
+  .formBtns button{flex:1;padding:11px;border-radius:6px;border:1px solid #ccc;background:#f4f4f4}
+  .formBtns button.primary{background:#111;color:#fff;border-color:#111}
+  .fixMeta{font-size:12px;color:#777;margin-bottom:10px}
+
+  ol#wpList{list-style:none;margin:0;padding:0}
+  .wp{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #eee;font-size:13px}
+  .wp:last-child{border-bottom:none}
+  .wpIdx{width:20px;color:#999;font-variant-numeric:tabular-nums}
+  .wpMain{flex:1;min-width:0}
+  .wpCue{font-weight:600}
+  .wpMeta{color:#777;font-size:12px}
+  .wpBtns{display:flex;gap:4px}
+  .wpBtns button{width:26px;height:26px;border:1px solid #ccc;background:#fff;border-radius:5px;font-size:12px;line-height:1}
+  .wpBtns button.del{color:#a33;border-color:#e0b3b3}
+  .empty{color:#999;font-size:13px}
+
+  .finishBtn{width:100%;padding:14px;font-size:15px;font-weight:600;
+    background:#0a6b0a;color:#fff;border:none;border-radius:8px}
+  .finishBtn:disabled{background:#aac9aa}
+  .hint{font-size:12px;color:#888;margin-top:8px}
+  .hidden{display:none}
+</style>
+
+<h1>Record route</h1>
+<div class="sub">Walk or ride the corridor once. Drop a waypoint at every cue point, then finish the route to export it.</div>
+
+<section id="statusBox">
+  <h2>GPS status</h2>
+  <div class="accRow"><span class="accNum" id="accNum">—</span><span class="accUnit">m accuracy</span></div>
+  <div class="accWarn" id="accWarn">Wait for better signal</div>
+  <div class="accErr hidden" id="accErr"></div>
+</section>
+
+<button class="dropBtn" id="dropBtn" onclick="dropWaypoint()">Drop waypoint</button>
+
+<section id="formBox" class="hidden" style="margin-top:16px">
+  <h2>New waypoint</h2>
+  <div class="fixMeta" id="fixMeta"></div>
+
+  <div class="field">
+    <label for="cueSelect">Cue type</label>
+    <select id="cueSelect" onchange="onCueChange()"></select>
+  </div>
+  <div class="field">
+    <label for="segSelect">Segment class</label>
+    <select id="segSelect"></select>
+  </div>
+  <div class="field">
+    <label for="landInput">Landmark (optional)</label>
+    <input type="text" id="landInput" placeholder="e.g. After Blackfriars Bridge">
+  </div>
+  <div class="field">
+    <label>Rotation (optional)</label>
+    <div class="radioRow" id="rotRadios">
+      <label><input type="radio" name="rot" value="left"> Left</label>
+      <label><input type="radio" name="rot" value="straight"> Straight</label>
+      <label><input type="radio" name="rot" value="right"> Right</label>
+    </div>
+  </div>
+
+  <div class="formBtns">
+    <button onclick="cancelWaypoint()">Cancel</button>
+    <button onclick="retryFix()">Retry fix</button>
+    <button class="primary" onclick="saveWaypoint()">Save waypoint</button>
+  </div>
+</section>
+
+<section style="margin-top:16px">
+  <h2>Waypoints</h2>
+  <ol id="wpList"></ol>
+  <div class="empty" id="wpEmpty">No waypoints captured yet.</div>
+</section>
+
+<button class="finishBtn" id="finishBtn" onclick="finishRoute()" disabled>Finish route</button>
+<div class="hint">Needs at least two waypoints. Saves to this browser's local storage and downloads a JSON backup.</div>
+
+<script>
+/* ============ GPS STATUS (ambient watch, for the live accuracy readout) ============ */
+function renderAccuracy(accuracy){
+  document.getElementById('accErr').classList.add('hidden');
+  document.getElementById('accNum').textContent = Math.round(accuracy);
+  document.getElementById('accWarn').classList.toggle('on', accuracy > 15);
+}
+function renderAccuracyError(err){
+  const el=document.getElementById('accErr');
+  el.classList.remove('hidden');
+  el.textContent = 'GPS error: '+err.message+' (geolocation needs HTTPS or localhost in most browsers)';
+}
+function startWatch(){
+  if(!('geolocation' in navigator)){
+    renderAccuracyError({message:'not available in this browser'});
+    document.getElementById('dropBtn').disabled = true;
+    return;
+  }
+  navigator.geolocation.watchPosition(
+    pos => renderAccuracy(pos.coords.accuracy),
+    err => renderAccuracyError(err),
+    {enableHighAccuracy:true, maximumAge:1000, timeout:10000}
+  );
+}
+
+/* ============ WAYPOINT CAPTURE ============ */
+let pendingFix = null;
+const waypoints = [];
+
+function dropWaypoint(){
+  const btn=document.getElementById('dropBtn');
+  btn.disabled = true; btn.textContent = 'Capturing…';
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      btn.disabled = false; btn.textContent = 'Drop waypoint';
+      pendingFix = pos.coords;
+      openWaypointForm();
+    },
+    err => {
+      btn.disabled = false; btn.textContent = 'Drop waypoint';
+      alert('Could not get a location fix: '+err.message);
+    },
+    {enableHighAccuracy:true, timeout:15000, maximumAge:0}
+  );
+}
+function retryFix(){
+  document.getElementById('fixMeta').textContent = 'Capturing…';
+  navigator.geolocation.getCurrentPosition(
+    pos => { pendingFix = pos.coords; renderFixMeta(); },
+    err => alert('Could not get a location fix: '+err.message),
+    {enableHighAccuracy:true, timeout:15000, maximumAge:0}
+  );
+}
+function renderFixMeta(){
+  const c=pendingFix;
+  const warn = c.accuracy > 15 ? ' — wait for better signal, or retry' : '';
+  document.getElementById('fixMeta').textContent =
+    `${c.latitude.toFixed(6)}, ${c.longitude.toFixed(6)} · ±${Math.round(c.accuracy)}m${warn}`;
+}
+function openWaypointForm(){
+  const cueSelect=document.getElementById('cueSelect');
+  cueSelect.innerHTML = Object.keys(CUE_LABEL).map(k=>`<option value="${k}">${CUE_LABEL[k]}</option>`).join('');
+  const segSelect=document.getElementById('segSelect');
+  segSelect.innerHTML = Object.keys(SEG_LABEL).map(k=>`<option value="${k}">${SEG_LABEL[k]}</option>`).join('');
+  document.getElementById('landInput').value='';
+  cueSelect.value='continue';
+  onCueChange();
+  renderFixMeta();
+  document.getElementById('formBox').classList.remove('hidden');
+}
+function onCueChange(){
+  const cue=document.getElementById('cueSelect').value;
+  const base=CUE_ROT[cue]||0;
+  const dir = base<0?'left':base>0?'right':'straight';
+  document.querySelector(`input[name="rot"][value="${dir}"]`).checked=true;
+}
+function cancelWaypoint(){
+  pendingFix=null;
+  document.getElementById('formBox').classList.add('hidden');
+}
+function saveWaypoint(){
+  const cue=document.getElementById('cueSelect').value;
+  const seg=document.getElementById('segSelect').value;
+  const land=document.getElementById('landInput').value.trim();
+  const dir=document.querySelector('input[name="rot"]:checked').value;
+  const base=Math.abs(CUE_ROT[cue]||0);
+  const rot = dir==='left' ? -base : dir==='right' ? base : 0;
+  waypoints.push({
+    lat: pendingFix.latitude, lng: pendingFix.longitude, accuracy: pendingFix.accuracy,
+    cue, seg, land, rot
+  });
+  pendingFix=null;
+  document.getElementById('formBox').classList.add('hidden');
+  renderWaypoints();
+}
+
+/* ============ WAYPOINT LIST ============ */
+function renderWaypoints(){
+  const list=document.getElementById('wpList');
+  document.getElementById('wpEmpty').classList.toggle('hidden', waypoints.length>0);
+  list.innerHTML = waypoints.map((w,i)=>`
+    <li class="wp">
+      <span class="wpIdx">${i+1}</span>
+      <span class="wpMain">
+        <span class="wpCue">${CUE_LABEL[w.cue]}</span>
+        <span class="wpMeta"> · ${SEG_LABEL[w.seg]}${w.land?' · '+w.land:''} · rot ${w.rot}° · ±${Math.round(w.accuracy)}m</span>
+      </span>
+      <span class="wpBtns">
+        <button onclick="moveWaypoint(${i},-1)" ${i===0?'disabled':''}>↑</button>
+        <button onclick="moveWaypoint(${i},1)" ${i===waypoints.length-1?'disabled':''}>↓</button>
+        <button class="del" onclick="deleteWaypoint(${i})">✕</button>
+      </span>
+    </li>`).join('');
+  document.getElementById('finishBtn').disabled = waypoints.length < 2;
+}
+function moveWaypoint(i,dir){
+  const j=i+dir;
+  if(j<0||j>=waypoints.length) return;
+  [waypoints[i],waypoints[j]]=[waypoints[j],waypoints[i]];
+  renderWaypoints();
+}
+function deleteWaypoint(i){
+  waypoints.splice(i,1);
+  renderWaypoints();
+}
+
+/* ============ FINISH ROUTE ============ */
+function haversineMeters(lat1,lng1,lat2,lng2){
+  const R=6371000, toRad=d=>d*Math.PI/180;
+  const dLat=toRad(lat2-lat1), dLng=toRad(lng2-lng1);
+  const a=Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLng/2)**2;
+  return Math.round(R*2*Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
+}
+function finishRoute(){
+  if(waypoints.length<2) return;
+  const name=prompt('Name this route:');
+  if(!name) return;
+  const route = waypoints.map((w,i)=>({
+    lat:w.lat, lng:w.lng, cue:w.cue, seg:w.seg, land:w.land||'', rot:w.rot,
+    distFromPrevious: i===0?0:haversineMeters(waypoints[i-1].lat,waypoints[i-1].lng,w.lat,w.lng)
+  }));
+  const key='augmentumRoute:'+name;
+  try{
+    localStorage.setItem(key, JSON.stringify(route));
+  }catch(e){
+    alert('Could not save to local storage: '+e.message+'\nThe JSON download will still work.');
+  }
+  downloadJson(name, route);
+  alert(`Saved "${name}" (${route.length} waypoints) to local storage under "${key}", and downloaded a JSON backup.`);
+}
+function downloadJson(name, route){
+  const blob=new Blob([JSON.stringify(route,null,2)], {type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url; a.download=name.trim().replace(/\s+/g,'-').toLowerCase()+'.json';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+renderWaypoints();
+startWatch();
+</script>

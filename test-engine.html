@@ -1,0 +1,179 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Augmentum · Engine test harness</title>
+<!--
+  Minimal harness for engine.js. No visual work here beyond the bare structural
+  markup renderMotion()/renderStationary() already require (.phone provides the
+  positioning context for #brd/#scr/#fullmapview) — the point is to exercise the
+  engine against real GPS, not to look finished.
+-->
+<link rel="stylesheet" href="style.css">
+<style>
+  body{padding:24px}
+  .harness{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start}
+  .phone{width:368px;height:832px;background:#000;border:1px solid rgba(255,255,255,.08)}
+  .controls{font-family:-apple-system,sans-serif;font-size:13px;min-width:280px}
+  .controls button{font-size:14px;padding:8px 14px;margin-right:8px;margin-bottom:10px}
+  .controls select{font-size:14px;padding:6px;margin-bottom:10px}
+  #debug{white-space:pre-wrap;background:#141619;color:#9fe19f;padding:10px;border-radius:8px;
+    font-family:ui-monospace,Menlo,monospace;font-size:12px;line-height:1.5}
+  .gpsWeak{color:#E8A33D;font-weight:700}
+
+  .preflight{border:1px solid #ccc;border-radius:8px;padding:12px 14px;margin-bottom:14px;max-width:320px}
+  .preflight h3{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#888;margin:0 0 8px}
+  .pfrow{display:flex;align-items:center;gap:8px;font-size:13px;padding:3px 0}
+  .pfdot{width:10px;height:10px;border-radius:50%;background:#c33;flex:none}
+  .pfdot.on{background:#2a7a2a}
+  .pflabel{flex:1}
+  .pfval{color:#888;font-size:12px}
+
+  .summary{border:1px solid #ccc;border-radius:8px;padding:14px 16px;margin-bottom:14px;max-width:320px}
+  .summary h3{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#888;margin:0 0 10px}
+  .summary .srow{display:flex;justify-content:space-between;font-size:13px;padding:3px 0}
+  .summary .srow span:first-child{color:#666}
+  .summary .sbtns{display:flex;gap:8px;margin-top:12px}
+  #sessionLabelInput{width:100%;padding:6px 8px;font-size:13px;margin-top:6px;box-sizing:border-box}
+</style>
+
+<div class="harness">
+  <div class="phone" id="phone">
+    <div class="brd" id="brd"></div>
+    <div class="scr" id="scr"></div>
+    <div class="fullmapview" id="fullmapview" style="display:none"></div>
+  </div>
+
+  <div class="controls">
+    <div class="preflight">
+      <h3>Pre-flight</h3>
+      <div class="pfrow"><span class="pfdot" id="pfDotLocation"></span><span class="pflabel">Location granted</span></div>
+      <div class="pfrow"><span class="pfdot" id="pfDotWakeLock"></span><span class="pflabel">Wake lock available</span></div>
+      <div class="pfrow"><span class="pfdot" id="pfDotAccuracy"></span><span class="pflabel">GPS accuracy under 20m</span><span class="pfval" id="pfAccuracyVal">—</span></div>
+    </div>
+    <div class="preflight">
+      <h3>Device reliability (live)</h3>
+      <div class="pfrow"><span class="pfdot" id="devDotFullscreen"></span><span class="pflabel">Fullscreen</span><span class="pfval" id="devValFullscreen">off</span></div>
+      <div class="pfrow"><span class="pfdot" id="devDotOrientation"></span><span class="pflabel">Orientation lock</span><span class="pfval" id="devValOrientation">off</span></div>
+      <div class="pfrow"><span class="pfdot" id="devDotWakeLock"></span><span class="pflabel">Wake lock</span><span class="pfval" id="devValWakeLock">off</span></div>
+    </div>
+    <div class="preflight">
+      <h3>Session</h3>
+      <div class="pfrow"><span class="pflabel">Label</span></div>
+      <input type="text" id="sessionLabelInput">
+    </div>
+    <div>
+      <select id="routeSelect"></select>
+      <button id="startBtn" onclick="onStartClick()" disabled>Start test</button>
+      <button id="stopBtn" onclick="onEndSessionClick()" disabled>End session</button>
+    </div>
+    <div class="summary hidden" id="summaryPanel">
+      <h3>Session summary</h3>
+      <div class="srow"><span>Label</span><span id="sumLabel">—</span></div>
+      <div class="srow"><span>Duration</span><span id="sumDuration">—</span></div>
+      <div class="srow"><span>Waypoints reached</span><span id="sumWaypoints">—</span></div>
+      <div class="srow"><span>Times off-route</span><span id="sumOffRoute">—</span></div>
+      <div class="srow"><span>Times stationary</span><span id="sumStationary">—</span></div>
+      <div class="sbtns">
+        <button onclick="downloadLog()">Download log</button>
+        <button id="shareLogBtn" onclick="onShareLogClick()" class="hidden">Share log</button>
+      </div>
+    </div>
+    <div id="debug">—</div>
+  </div>
+</div>
+
+<script src="glyphs.js"></script>
+<script src="render.js"></script>
+<script src="engine.js"></script>
+<script src="preflight.js"></script>
+<script src="log.js"></script>
+<script>
+function renderPreflight(p){
+  document.getElementById('pfDotLocation').classList.toggle('on', p.locationGranted);
+  document.getElementById('pfDotWakeLock').classList.toggle('on', p.wakeLockAvailable);
+  document.getElementById('pfDotAccuracy').classList.toggle('on', p.gpsAccuracy!=null && p.gpsAccuracy<PREFLIGHT_GPS_OK_M);
+  document.getElementById('pfAccuracyVal').textContent = p.gpsAccuracy!=null ? Math.round(p.gpsAccuracy)+'m' : '—';
+  document.getElementById('startBtn').disabled = !p.allGreen;
+}
+startPreflightChecks(renderPreflight);
+
+function renderDeviceStatus(d){
+  document.getElementById('devDotFullscreen').classList.toggle('on', d.fullscreen);
+  document.getElementById('devValFullscreen').textContent = d.fullscreen ? 'on' : 'off';
+  document.getElementById('devDotOrientation').classList.toggle('on', d.orientationLock);
+  document.getElementById('devValOrientation').textContent = d.orientationLock ? 'on' : 'off';
+  document.getElementById('devDotWakeLock').classList.toggle('on', d.wakeLock);
+  document.getElementById('devValWakeLock').textContent = d.wakeLock ? 'on' : 'off';
+}
+setDeviceStatusHandler(renderDeviceStatus);
+
+function populateRouteOptions(){
+  const sel=document.getElementById('routeSelect');
+  const names=[];
+  for(let i=0;i<localStorage.length;i++){
+    const k=localStorage.key(i);
+    if(k && k.startsWith('augmentumRoute:')) names.push(k.slice('augmentumRoute:'.length));
+  }
+  sel.innerHTML = names.length
+    ? names.map(n=>`<option value="${n}">${n}</option>`).join('')
+    : '<option value="">No saved routes — record one first</option>';
+}
+function onStartClick(){
+  const name=document.getElementById('routeSelect').value;
+  if(!name){ alert('No saved route selected. Use record-route.html first.'); return; }
+  if(!('geolocation' in navigator)){ alert('Geolocation not available in this browser.'); return; }
+  let route;
+  try{ route=JSON.parse(localStorage.getItem('augmentumRoute:'+name)); }
+  catch(e){ alert('Saved route is corrupt JSON.'); return; }
+  if(!Array.isArray(route) || route.length<2){ alert('Route needs at least two waypoints.'); return; }
+  // single-rider pilot: a plain date-time label is enough, no roster/participant picker.
+  // Read from a field filled in ahead of time, NOT a prompt() call in this handler — a
+  // blocking native dialog here would burn the click's transient user-activation window
+  // before requestFullscreenBestEffort() gets to it, inside armDeviceReliability below.
+  const label=document.getElementById('sessionLabelInput').value.trim() || new Date().toISOString();
+  startSession(label);
+  document.getElementById('summaryPanel').classList.add('hidden');
+  armDeviceReliability(document.getElementById('phone'));
+  stopPreflightChecks();
+  startTest(route);
+  document.getElementById('startBtn').disabled=true;
+  document.getElementById('stopBtn').disabled=false;
+}
+function onEndSessionClick(){
+  stopTest();
+  disarmDeviceReliability();
+  document.getElementById('stopBtn').disabled=true;
+  showSessionSummary();
+  startPreflightChecks(renderPreflight); // re-arm the gate so another test run can start clean
+  document.getElementById('sessionLabelInput').value = new Date().toISOString(); // fresh default for the next run
+}
+function fmtDuration(ms){
+  const s=Math.round(ms/1000);
+  return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');
+}
+function showSessionSummary(){
+  const sum=buildSessionSummary();
+  document.getElementById('sumLabel').textContent=sum.label;
+  document.getElementById('sumDuration').textContent=fmtDuration(sum.durationMs);
+  document.getElementById('sumWaypoints').textContent=sum.waypointsReached;
+  document.getElementById('sumOffRoute').textContent=sum.offRouteCount;
+  document.getElementById('sumStationary').textContent=sum.stationaryCount;
+  document.getElementById('shareLogBtn').classList.toggle('hidden', !navigator.share);
+  document.getElementById('summaryPanel').classList.remove('hidden');
+}
+async function onShareLogClick(){
+  const result=await shareLog();
+  if(!result.shared && result.reason!=='cancelled') alert('Could not share: '+result.reason);
+}
+setEngineUpdateHandler(s=>{
+  document.getElementById('debug').innerHTML =
+    `context: ${s.context}\ncondition: ${s.condition}\ncue: ${s.cue}\nlegIndex: ${s.legIndex} / ${ROUTE.length-1}\n`+
+    `trueDist: ${s.trueDist!=null?Math.round(s.trueDist):'—'} m\ndistSoFar: ${Math.round(s.distSoFar)} m / ${Math.round(TOTAL_ROUTE_DIST)} m\n`+
+    `speed: ${s.lastSpeedMps!=null?s.lastSpeedMps.toFixed(2):'—'} m/s\nstopDwell: ${s.stopDwell} ms   moveDwell: ${s.moveDwell} ms\n`+
+    `finished: ${s.finished}\n`+
+    (s.gpsWeak ? `<span class="gpsWeak">GPS WEAK (accuracy > 20m for 5+ fixes)</span>` : 'gps: ok')+
+    `\nlog records: ${typeof logRecords!=='undefined'?logRecords.length:0}`;
+});
+populateRouteOptions();
+document.getElementById('sessionLabelInput').value = new Date().toISOString();
+</script>
