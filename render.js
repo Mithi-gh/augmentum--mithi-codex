@@ -140,6 +140,7 @@ function routeMeterNext(){
 
 /* ============ RENDER: MOTION ============ */
 function renderMotion(){
+  document.getElementById('fullmapview').style.display='none';state.showFullMap=false;
   const c=state.condition;
   let html='';
   if(c==='caution'){
@@ -237,6 +238,7 @@ function renderStationary(sOverride){
   document.getElementById('scr').innerHTML=html;
   document.getElementById('scr').className='scr';
   setBorder(caution?'yellow':'off');
+  if(typeof syncNavigationMap==='function')syncNavigationMap();
 }
 function renderFullMap(){
   setBorder('off');
@@ -257,6 +259,7 @@ function renderFullMap(){
       <div class="adist" style="color:#3EA8FF">${actD}</div>
       <div class="ainstr" style="color:#3EA8FF">${actI}</div>
     </div></div>`;
+  if(typeof syncNavigationMap==='function')syncNavigationMap();
 }
 
 function renderMotionOverlay(){

@@ -432,3 +432,18 @@ function tapMeter(){ logEvent('meter_card_tapped', ''); }
 function tapMap(){}
 function ctrlTap(){}
 function closeFullMap(){ state.showFullMap=false; render(); }
+
+/* Pause retains the matcher anchor and session; resume re-establishes continuity. */
+function pauseNavigation(){
+  if(!tracking)return;
+  stopTest();resetContinuity();logEvent('session_paused','');
+}
+function resumeNavigation(){
+  if(tracking || state.finished || !routeModel)return;
+  tracking=true;const generation=++trackingGeneration;resetContinuity();armSignalTimeout();
+  watchId=navigator.geolocation.watchPosition(
+    pos=>{if(tracking && generation===trackingGeneration)onFix(pos)},
+    err=>{if(tracking && generation===trackingGeneration)onFixError(err)},
+    {enableHighAccuracy:true,maximumAge:1000,timeout:5000});
+  logEvent('session_resumed','');
+}
