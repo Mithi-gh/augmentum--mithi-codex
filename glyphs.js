@@ -9,7 +9,7 @@ const REVERSE='<path class="gs" d="M34 88 V44 a18 18 0 0 1 36 0 V62 M54 48 L70 6
 const ARRIVE='<circle class="gs" cx="50" cy="50" r="12"/><circle class="gs" opacity=".28" cx="50" cy="50" r="32"/>';
 
 const REC = {
-  offroute:{n:'Off route',g:'<path class="gs" d="M20 88 V46 a18 18 0 0 1 18 -18 H84"/><circle cx="70" cy="76" r="11" fill="currentColor" stroke="none"/>',i:'Off route',c:'Rerouting'},
+  offroute:{n:'Off route',g:'<path class="gs" d="M20 88 V46 a18 18 0 0 1 18 -18 H84"/><circle cx="70" cy="76" r="11" fill="currentColor" stroke="none"/>',i:'Off route',c:'Rejoin the recorded route when safe'},
   missed:{n:'Turn missed',g:'<path class="gs" opacity=".28" d="M64 88 V46 a16 16 0 0 0 -16 -16 H28 M44 14 L24 30 L44 46"/><path class="gs" d="M22 80 L82 20"/>',i:'Turn missed',c:'New route found'},
   updated:{n:'Route updated',g:'<circle class="gs" cx="50" cy="50" r="34"/><path class="gs" d="M34 51 L45 63 L67 39"/>',i:'Route updated',c:'Avoiding a blocked lane'},
   signal:{n:'Signal weak',g:'<path class="gs" opacity=".28" d="M14 46 A52 52 0 0 1 86 46"/><path class="gs" opacity=".28" d="M27 60 A34 34 0 0 1 73 60"/><path class="gs" d="M39 73 A17 17 0 0 1 61 73"/><circle cx="50" cy="88" r="7" fill="currentColor" stroke="none"/>',i:'Signal weak',c:'Follow the road'},

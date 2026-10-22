@@ -80,6 +80,11 @@ function mapSvg(kind){
 function expandIcon(){
   return `<svg viewBox="0 0 100 100" width="20" height="20"><path d="M58 18 H82 V42 M42 82 H18 V58" stroke="#fff" stroke-width="10" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M82 18 L56 44 M18 82 L44 56" stroke="#fff" stroke-width="10" stroke-linecap="round"/></svg>`;
 }
+function maneuverCopy(cue,band,rot){
+  const copy=COPY[cue][band]||COPY[cue].rest;
+  return rot && CUE_ROT[cue] && Math.sign(rot)!==Math.sign(CUE_ROT[cue])
+    ? copy.map(v=>typeof v==='string'?v.replace(/left|right/g,w=>w==='left'?'right':'left'):v) : copy;
+}
 function bandKey(c){ return c==='normal'?'rest':c; }
 function setBorder(kind){
   const b=document.getElementById('brd');
@@ -97,28 +102,29 @@ function routeFillPct(){
   if(!state.drivingFromRoute) return 46;
   const leg=ROUTE[state.legIndex];
   const done = state.distSoFar + (leg&&!leg.stop ? (leg.dist-state.trueDist) : 0);
-  return Math.min(100, 100*done/TOTAL_ROUTE_DIST);
+  return TOTAL_ROUTE_DIST>0 ? Math.max(0,Math.min(100,100*done/TOTAL_ROUTE_DIST)) : 0;
 }
 function routeBarLabel(){
   if(!state.drivingFromRoute) return '12 min · 2.8 km · 46%';
   const pct=Math.round(routeFillPct());
-  const remainKm=((TOTAL_ROUTE_DIST-(state.distSoFar+(ROUTE[state.legIndex]&&!ROUTE[state.legIndex].stop?(ROUTE[state.legIndex].dist-state.trueDist):0)))/1000).toFixed(1);
+  const remainKm=(TOTAL_ROUTE_DIST*(1-routeFillPct()/100)/1000).toFixed(1);
   return `${remainKm} km left · ${pct}%`;
 }
 function routeActionDefault(){
   const leg=ROUTE[state.legIndex];
-  const cp = COPY[leg.cue][bandKey(state.condition)];
+  if(!leg) return {g:ARRIVE,rot:0,d:'',i:'Arrived',c:''};
+  const cp = maneuverCopy(leg.cue,bandKey(state.condition),leg.rot);
   const d=fmtDistance(Math.round(state.trueDist));
   return {g:CUE_GLYPH[leg.cue], rot:leg.rot||0, d:d?`${d.num}${d.unit}`:'', i:cp[1], c:cp[2]};
 }
 function routeActionNext(){
   const leg=nextRouteLeg();
   if(!leg) return {g:ARRIVE, rot:0, d:'', i:'End of route', c:''};
-  return {g:CUE_GLYPH[leg.cue], rot:leg.rot||0, d:leg.dist+'m', i:COPY[leg.cue].rest[1], c:leg.land||''};
+  return {g:CUE_GLYPH[leg.cue], rot:leg.rot||0, d:leg.dist+'m', i:maneuverCopy(leg.cue,'rest',leg.rot)[1], c:escapeHtml(leg.land||'')};
 }
 function routeMeterDefault(){
   const leg=ROUTE[state.legIndex];
-  return [SEG_N[leg.seg], SEG_LABEL[leg.seg], 'for '+Math.round(state.trueDist)+'m'];
+  return leg ? [SEG_N[leg.seg],SEG_LABEL[leg.seg],'for '+Math.round(state.trueDist)+'m'] : [0,'Not surveyed',''];
 }
 function routeMeterNext(){
   const leg=nextRouteLeg();
@@ -139,7 +145,7 @@ function renderMotion(){
       </div>${barHtml(routeFillPct(),routeBarLabel(),true)}`;
     setBorder('yellow');
   } else {
-    const cp=COPY[state.cue][bandKey(c)];
+    const cp=maneuverCopy(state.cue,bandKey(c),state.rot);
     const d=fmtDistance(c==='act'?null:Math.round(state.trueDist));
     const rot=state.rot||0;
     const glyphColor = c==='normal'?'#fff':c==='confirm'?'rgba(255,255,255,.56)':'var(--accent)';
@@ -166,14 +172,14 @@ function renderStationary(sOverride){
   if(state.showFullMap){ renderFullMap(); return; }
   document.getElementById('fullmapview').style.display='none';
   let s;
-  if(state.condition==='caution'){
+  if(state.condition==='caution' || state.gpsWeak){
     /* Caution overrides tone unconditionally: off-route wins over whatever situation,
        override param, or drivingFromRoute state was already on screen. Reuses the
        manual SIT_DATA.offroute card wholesale (its map/ctrls/caution tone are already
        exactly this case) and swaps in the live recovery glyph + copy from REC, the
        same lookup renderMotion's caution branch already reads off state.recoveryGlyph. */
-    const r=REC[state.recoveryGlyph];
-    s=Object.assign({}, SIT_DATA.offroute, { act:{g:r.g, rot:0, d:'', i:r.i, c:r.c} });
+    const r=REC[state.gpsWeak?'signal':state.recoveryGlyph];
+    s=Object.assign({}, SIT_DATA.offroute, { act:{g:r.g, rot:0, d:'', i:r.i, c:r.c}, act2:{g:r.g,rot:0,d:'',i:r.i,c:r.c}, fill:routeFillPct(),blabel:routeBarLabel(),meter:[0,'Not surveyed',''],meter2:[0,'Not surveyed',''],ctrls:[] });
   }
   else if(sOverride){ s=sOverride; }
   else if(state.drivingFromRoute && state.situation==='normal'){
@@ -234,8 +240,8 @@ function renderFullMap(){
   const leg = state.drivingFromRoute ? ROUTE[state.legIndex] : SIT_DATA[state.situation]||{map:'norm',act:{g:ARROW,rot:-90,d:'90m',i:'Prepare left'}};
   const mapKind = state.drivingFromRoute ? 'norm' : (SIT_DATA[state.situation]?SIT_DATA[state.situation].map:'norm');
   const actD = state.drivingFromRoute ? Math.round(state.trueDist)+'m' : (SIT_DATA[state.situation]?SIT_DATA[state.situation].act.d:'90m');
-  const actI = state.drivingFromRoute ? COPY[ROUTE[state.legIndex].cue][bandKey(state.condition)][1] : (SIT_DATA[state.situation]?SIT_DATA[state.situation].act.i:'Prepare left');
-  const rot = state.drivingFromRoute ? (ROUTE[state.legIndex].rot||0) : 0;
+  const actI = state.drivingFromRoute ? (state.finished?'Arrived':state.condition==='caution'?REC[state.recoveryGlyph].i:maneuverCopy(state.cue,bandKey(state.condition),state.rot)[1]) : (SIT_DATA[state.situation]?SIT_DATA[state.situation].act.i:'Prepare left');
+  const rot = state.drivingFromRoute ? (state.rot||0) : 0;
   fm.innerHTML=`${mapSvg(mapKind)}
     <div class="fmback" onclick="closeFullMap()">
       <svg viewBox="0 0 100 100" width="24" height="24"><path d="M62 20 L30 50 L62 80" stroke="#fff" stroke-width="11" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -248,7 +254,7 @@ function renderFullMap(){
 }
 
 function renderMotionOverlay(){
-  const key = state.eventStageName || 'offroute';
+  const key = state.gpsWeak ? 'signal' : state.eventStageName || 'offroute';
   const r = REC[key] || REC.offroute;
   const html = `${r.unlocked?'<div class="badge">Unlocked copy</div>':''}
     <div class="motionwrap"><div class="conf"></div>

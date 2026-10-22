@@ -10,6 +10,7 @@
 -->
 <script src="glyphs.js"></script>
 <script src="render.js"></script>
+<script src="route.js"></script>
 <style>
   *{box-sizing:border-box}
   body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
@@ -103,7 +104,7 @@
   <div class="formBtns">
     <button onclick="cancelWaypoint()">Cancel</button>
     <button onclick="retryFix()">Retry fix</button>
-    <button class="primary" onclick="saveWaypoint()">Save waypoint</button>
+    <button class="primary" id="saveWaypointBtn" onclick="saveWaypoint()">Save waypoint</button>
   </div>
 </section>
 
@@ -143,31 +144,34 @@ function startWatch(){
 
 /* ============ WAYPOINT CAPTURE ============ */
 let pendingFix = null;
+let pendingFixTimestamp = null;
+let captureGeneration = 0;
 const waypoints = [];
 
-function dropWaypoint(){
+function captureWaypointFix(openForm){
+  const generation=++captureGeneration;
+  pendingFix=null;
   const btn=document.getElementById('dropBtn');
-  btn.disabled = true; btn.textContent = 'Capturing…';
-  navigator.geolocation.getCurrentPosition(
-    pos => {
-      btn.disabled = false; btn.textContent = 'Drop waypoint';
-      pendingFix = pos.coords;
-      openWaypointForm();
-    },
-    err => {
-      btn.disabled = false; btn.textContent = 'Drop waypoint';
-      alert('Could not get a location fix: '+err.message);
-    },
-    {enableHighAccuracy:true, timeout:15000, maximumAge:0}
-  );
+  const saveBtn=document.getElementById('saveWaypointBtn');
+  btn.disabled=true; btn.textContent='Capturing…'; saveBtn.disabled=true;
+  navigator.geolocation.getCurrentPosition(pos=>{
+    if(generation!==captureGeneration) return;
+    btn.disabled=false; btn.textContent='Drop waypoint';
+    if(!validCoordinate(pos.coords.latitude,pos.coords.longitude) || !Number.isFinite(pos.timestamp) || Date.now()-pos.timestamp>5000 || pos.timestamp>Date.now()+1000){
+      alert('GPS fix is invalid or stale. Retry the fix.'); return;
+    }
+    pendingFix=pos.coords; pendingFixTimestamp=pos.timestamp; saveBtn.disabled=false;
+    if(openForm) openWaypointForm(); else renderFixMeta();
+  },err=>{
+    if(generation!==captureGeneration) return;
+    btn.disabled=false; btn.textContent='Drop waypoint';
+    alert('Could not get a location fix: '+err.message);
+  },{enableHighAccuracy:true,timeout:15000,maximumAge:0});
 }
+function dropWaypoint(){ captureWaypointFix(true); }
 function retryFix(){
-  document.getElementById('fixMeta').textContent = 'Capturing…';
-  navigator.geolocation.getCurrentPosition(
-    pos => { pendingFix = pos.coords; renderFixMeta(); },
-    err => alert('Could not get a location fix: '+err.message),
-    {enableHighAccuracy:true, timeout:15000, maximumAge:0}
-  );
+  document.getElementById('fixMeta').textContent='Capturing…';
+  captureWaypointFix(false);
 }
 function renderFixMeta(){
   const c=pendingFix;
@@ -193,10 +197,16 @@ function onCueChange(){
   document.querySelector(`input[name="rot"][value="${dir}"]`).checked=true;
 }
 function cancelWaypoint(){
+  captureGeneration+=1;
+  document.getElementById('dropBtn').disabled=false; document.getElementById('dropBtn').textContent='Drop waypoint';
   pendingFix=null;
   document.getElementById('formBox').classList.add('hidden');
 }
 function saveWaypoint(){
+  if(!pendingFix) return;
+  if(Date.now()-pendingFixTimestamp>15000){ alert('GPS fix is stale. Retry before saving.'); return; }
+  captureGeneration+=1;
+  if(!validCoordinate(pendingFix.latitude,pendingFix.longitude) || !Number.isFinite(pendingFix.accuracy) || pendingFix.accuracy>=20){ alert('Wait for a GPS fix with accuracy under 20m, then retry.'); return; }
   const cue=document.getElementById('cueSelect').value;
   const seg=document.getElementById('segSelect').value;
   const land=document.getElementById('landInput').value.trim();
@@ -221,7 +231,7 @@ function renderWaypoints(){
       <span class="wpIdx">${i+1}</span>
       <span class="wpMain">
         <span class="wpCue">${CUE_LABEL[w.cue]}</span>
-        <span class="wpMeta"> · ${SEG_LABEL[w.seg]}${w.land?' · '+w.land:''} · rot ${w.rot}° · ±${Math.round(w.accuracy)}m</span>
+        <span class="wpMeta"> · ${SEG_LABEL[w.seg]}${w.land?' · '+escapeHtml(w.land):''} · rot ${w.rot}° · ±${Math.round(w.accuracy)}m</span>
       </span>
       <span class="wpBtns">
         <button onclick="moveWaypoint(${i},-1)" ${i===0?'disabled':''}>↑</button>
@@ -253,18 +263,21 @@ function finishRoute(){
   if(waypoints.length<2) return;
   const name=prompt('Name this route:');
   if(!name) return;
-  const route = waypoints.map((w,i)=>({
+  let route = waypoints.map((w,i)=>({
     lat:w.lat, lng:w.lng, cue:w.cue, seg:w.seg, land:w.land||'', rot:w.rot,
     distFromPrevious: i===0?0:haversineMeters(waypoints[i-1].lat,waypoints[i-1].lng,w.lat,w.lng)
   }));
+  try { route=normalizeRoute(route); } catch(e){ alert(e.message); return; }
   const key='augmentumRoute:'+name;
+  let saved=false;
   try{
-    localStorage.setItem(key, JSON.stringify(route));
+    if(localStorage.getItem(key)!==null && !confirm('Replace the existing route '+name+'?')) return;
+    localStorage.setItem(key, JSON.stringify(route)); saved=true;
   }catch(e){
     alert('Could not save to local storage: '+e.message+'\nThe JSON download will still work.');
   }
   downloadJson(name, route);
-  alert(`Saved "${name}" (${route.length} waypoints) to local storage under "${key}", and downloaded a JSON backup.`);
+  alert(`${saved?'Saved to local storage and downloaded':'Downloaded'} a JSON backup of "${name}" (${route.length} waypoints).`);
 }
 function downloadJson(name, route){
   const blob=new Blob([JSON.stringify(route,null,2)], {type:'application/json'});

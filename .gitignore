@@ -1,1 +1,4 @@
 .DS_Store
+node_modules/
+.local/
+__pycache__/

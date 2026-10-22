@@ -14,21 +14,33 @@ const LOG_STORAGE_PREFIX = 'augmentumLog:';
 
 let sessionLabel = null;
 let sessionStartedAt = null;
+let sessionEndedAt = null;
+let logPersistenceError = null;
 let logRecords = [];
 
 function logStorageKey(){ return LOG_STORAGE_PREFIX+sessionLabel; }
 
 function startSession(label){
+  const base=label;
+  let suffix=1;
+  try{ while(localStorage.getItem(LOG_STORAGE_PREFIX+label)!==null) label=base+' ('+(++suffix)+')'; }catch(e){}
   sessionLabel = label;
+  sessionEndedAt=null; logPersistenceError=null;
   sessionStartedAt = Date.now();
   logRecords = [];
-  persistLog();
+  logEvent('session_started','',{lat:null,lng:null,accuracy:null,speedMps:null,condition:null,cue:null,segment:null});
+}
+
+function endSession(reason){
+  if(sessionEndedAt!==null || sessionStartedAt===null) return;
+  sessionEndedAt=Date.now();
+  logEvent('session_ended',reason);
 }
 
 function persistLog(){
   if(!sessionLabel) return;
-  try{ localStorage.setItem(logStorageKey(), JSON.stringify(logRecords)); }
-  catch(e){ console.warn('[log] failed to persist log', e); }
+  try{ localStorage.setItem(logStorageKey(), JSON.stringify(logRecords)); logPersistenceError=null; }
+  catch(e){ logPersistenceError=e.message; console.warn('[log] failed to persist log', e); }
 }
 
 /* overrides lets a caller supply lat/lng/accuracy/speedMps straight from a
@@ -47,9 +59,9 @@ function logEvent(eventType, note, overrides){
     lng: 'lng' in o ? o.lng : (fix ? fix.lng : null),
     accuracy: 'accuracy' in o ? o.accuracy : (fix ? fix.accuracy : null),
     speedMps: 'speedMps' in o ? o.speedMps : (typeof state!=='undefined' ? state.lastSpeedMps : null),
-    condition: typeof state!=='undefined' ? state.condition : null,
-    cue: typeof state!=='undefined' ? state.cue : null,
-    segment: typeof state!=='undefined' ? state.currentSeg : null,
+    condition: 'condition' in o ? o.condition : (typeof state!=='undefined' ? state.condition : null),
+    cue: 'cue' in o ? o.cue : (typeof state!=='undefined' ? state.cue : null),
+    segment: 'segment' in o ? o.segment : (typeof state!=='undefined' ? state.currentSeg : null),
     event_type: eventType,
     note: note||''
   };
@@ -67,7 +79,7 @@ function countEvents(eventType){
 function buildSessionSummary(){
   return {
     label: sessionLabel,
-    durationMs: sessionStartedAt ? Date.now()-sessionStartedAt : 0,
+    durationMs: sessionStartedAt!==null ? (sessionEndedAt??Date.now())-sessionStartedAt : 0,
     waypointsReached: countEvents('waypoint_reached'),
     offRouteCount: countEvents('off_route_entered'),
     stationaryCount: countEvents('stationary_entered'),

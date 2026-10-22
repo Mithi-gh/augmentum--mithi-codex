@@ -20,6 +20,15 @@ let TOTAL_ROUTE_DIST = 0;
 let recordedRoute = null;   // raw {lat,lng,cue,seg,land,rot,distFromPrevious}[] as saved by record-route.html
 
 let watchId = null;
+let tracking = false;
+let continuityBroken = true;
+let trackingGeneration = 0;
+let signalTimer = null;
+let waypointCandidateAt = null;
+let previousProgressFix = null;
+const MAX_FIX_AGE_MS = 5000;
+const MAX_SPEED_MPS = 25;
+const WAYPOINT_RADIUS_M = 10;
 let confirmTimer = null;
 let confTimer = null;
 let badFixStreak = 0;
@@ -30,7 +39,6 @@ const STOP_SPEED_MPS = 0.5; // GPS jitter while genuinely stationary rarely comp
 const OFF_ROUTE_ENTER_M = 25;
 const OFF_ROUTE_CLEAR_M = 15;
 const OFF_ROUTE_CONSECUTIVE_FIXES = 3;
-const OFF_ROUTE_STAGE_MS = 2400; // same per-stage cadence as the original eventOverlay demo
 
 /* ============ HAVERSINE ============ */
 function haversineMeters(lat1,lng1,lat2,lng2){
@@ -83,6 +91,7 @@ function computeBand(trueDist, prevBand){
    ending the leg that started at route[i-1], so ROUTE[i-1] (leg array, 0-indexed
    like the original prototype's ROUTE) = {cue, dist, rot, seg, land} of route[i]. */
 function loadRoute(route){
+  route=normalizeRoute(route);
   recordedRoute = route;
   ROUTE = route.slice(1).map(wp => ({cue:wp.cue, dist:wp.distFromPrevious, rot:wp.rot||0, seg:wp.seg, land:wp.land||''}));
   TOTAL_ROUTE_DIST = ROUTE.reduce((a,l)=>a+l.dist,0);
@@ -132,12 +141,15 @@ function exitStationary(){
 /* ============ WAYPOINT ADVANCE (ported from advanceLeg) ============ */
 function advanceWaypoint(){
   const prevLeg=ROUTE[state.legIndex];
+  logEvent('waypoint_reached', 'leg '+(state.legIndex+1)+' of '+ROUTE.length+', cue '+prevLeg.cue+(prevLeg.land?' — '+prevLeg.land:''));
   state.distSoFar+=prevLeg.dist;
   state.legIndex+=1;
-  state.confirmHold=false;
+  state.confirmHold=false; waypointCandidateAt=null; previousProgressFix=null;
   const leg=ROUTE[state.legIndex];
   if(!leg){
-    state.finished=true;
+    state.finished=true; state.trueDist=0; state.cue='arrive';
+    setCondition('confirm');
+    logEvent('route_completed', 'All waypoints reached');
     stopTest();
     return;
   }
@@ -152,18 +164,51 @@ function enterConfirmHold(){
   state.confirmHold=true; setCondition('confirm');
   clearTimeout(confirmTimer);
   confirmTimer=setTimeout(()=>{
-    if(!state.confirmHold) return;
+    if(!tracking || !state.confirmHold || state.gpsWeak || Date.now()-state.lastFix.t>MAX_FIX_AGE_MS) return;
     advanceWaypoint();
     render();
   },1200);
 }
-function advanceMotionProgress(fixAccuracy){
-  const leg=ROUTE[state.legIndex];
-  const t=targetWaypoint();
-  const dist=haversineMeters(state.lastFix.lat,state.lastFix.lng,t.lat,t.lng);
+function waypointRadius(){
+  return Math.min(WAYPOINT_RADIUS_M,ROUTE[state.legIndex].dist/3);
+}
+function confirmationPositionValid(){
+  if(state.trueDist<=waypointRadius()) return true;
+  const target=targetWaypoint(),next=recordedRoute[state.legIndex+2];
+  if(!next) return false; // Final arrival cannot be inferred by passing the destination.
+  const p=toLocalXY(state.lastFix.lat,state.lastFix.lng,target.lat,target.lng);
+  const n=toLocalXY(next.lat,next.lng,target.lat,target.lng);
+  return pointToSegmentDistance(p.x,p.y,0,0,n.x,n.y)<=10 && p.x*n.x+p.y*n.y>0;
+}
+function cancelConfirmation(){
+  clearTimeout(confirmTimer); state.confirmHold=false; waypointCandidateAt=null;
+  if(!state.offRouteActive) setCondition('normal');
+}
+function advanceMotionProgress(){
+  const leg=ROUTE[state.legIndex], target=targetWaypoint(), fix=state.lastFix;
+  const dist=haversineMeters(fix.lat,fix.lng,target.lat,target.lng);
   state.trueDist=dist;
-  if(dist<=fixAccuracy){
-    logEvent('waypoint_reached', 'leg '+(state.legIndex+1)+' of '+ROUTE.length+', cue '+leg.cue+(leg.land?' — '+leg.land:''));
+  // Never silently start at a later crossing or at the destination of a loop.
+  if(!state.routeStarted){
+    if(haversineMeters(fix.lat,fix.lng,recordedRoute[0].lat,recordedRoute[0].lng)>Math.min(25,ROUTE[0].dist/2)) return;
+    state.routeStarted=true;
+    logEvent('route_started', 'Start coordinate acquired');
+  }
+  let passed=false;
+  if(previousProgressFix && state.legIndex<ROUTE.length-1){
+    const a=toLocalXY(previousProgressFix.lat,previousProgressFix.lng,target.lat,target.lng);
+    const b=toLocalXY(fix.lat,fix.lng,target.lat,target.lng);
+    const next=recordedRoute[state.legIndex+2];
+    const n=toLocalXY(next.lat,next.lng,target.lat,target.lng);
+    // Sparse samples may cross a waypoint, but a missed turn must not count as a turn.
+    passed=pointToSegmentDistance(0,0,a.x,a.y,b.x,b.y)<=8 &&
+      pointToSegmentDistance(b.x,b.y,0,0,n.x,n.y)<=10 && b.x*n.x+b.y*n.y>0;
+  }
+  previousProgressFix=fix;
+  const near=dist<=waypointRadius();
+  if(near && waypointCandidateAt===null) waypointCandidateAt=fix.t;
+  if(!near) waypointCandidateAt=null;
+  if(passed || (near && fix.t-waypointCandidateAt>=1000)){
     if(leg.cue==='continue') advanceWaypoint();
     else enterConfirmHold();
   } else {
@@ -172,24 +217,16 @@ function advanceMotionProgress(fixAccuracy){
 }
 
 /* ============ OFF-ROUTE DETECTION ============
-   Enter at 25m perpendicular distance from the current leg's line segment, held for
-   3 consecutive fixes; clear at 15m, also held for 3 consecutive fixes. Different
-   thresholds so the recovery state doesn't flicker right at the boundary, same as
-   computeBand's hysteresis margins do for distance bands. While active, condition is
-   pinned to 'caution' and recoveryGlyph walks offroute -> rerouting -> updated on the
-   same ~2.4s-per-stage cadence the original eventOverlay demo used, then holds at
-   'updated' until the rider is actually back on the line (unlike the demo, which was
-   time-boxed for a scripted show-and-tell). */
-function offRouteStageForElapsed(ms){
-  if(ms<OFF_ROUTE_STAGE_MS) return 'offroute';
-  if(ms<OFF_ROUTE_STAGE_MS*2) return 'rerouting';
-  return 'updated';
-}
+   Three consecutive reliable fixes beyond 25m enter caution; three within 15m
+   clear it. Geometry is the current recorded straight leg, not a road network.
+   Stay on the off-route message until actual recovery; no reroute is fabricated. */
 function enterOffRoute(){
+  cancelConfirmation(); previousProgressFix=null;
   state.offRouteActive=true; state.offRouteElapsed=0; state.recoveryGlyph='offroute';
   setCondition('caution');
   offRouteBadStreak=0; offRouteGoodStreak=0;
   logEvent('off_route_entered', '');
+  if(state.legIndex>0 && ROUTE[state.legIndex-1].cue!=='continue') logEvent('turn_missed', 'Possible missed turn; left the outgoing corridor');
 }
 function exitOffRoute(){
   state.offRouteActive=false; state.offRouteElapsed=0;
@@ -203,7 +240,7 @@ function checkOffRoute(lat,lng,dt){
   const dist=perpendicularDistanceToLeg(lat,lng);
   if(state.offRouteActive){
     state.offRouteElapsed+=dt;
-    state.recoveryGlyph=offRouteStageForElapsed(state.offRouteElapsed);
+
     if(dist<=OFF_ROUTE_CLEAR_M){
       offRouteGoodStreak+=1;
       if(offRouteGoodStreak>=OFF_ROUTE_CONSECUTIVE_FIXES) exitOffRoute();
@@ -221,46 +258,69 @@ function checkOffRoute(lat,lng,dt){
 }
 
 /* ============ GEOLOCATION ============ */
+function resetContinuity(){
+  continuityBroken=true;
+  state.stopDwell=0; state.moveDwell=0;
+  offRouteBadStreak=0; offRouteGoodStreak=0;
+  previousProgressFix=null; waypointCandidateAt=null;
+  if(state.confirmHold) cancelConfirmation();
+}
+function flagWeakSignal(note,fix){
+  resetContinuity();
+  if(!state.gpsWeak){ state.gpsWeak=true; logEvent('gps_weak_flagged',note,fix); }
+  render();
+}
+function armSignalTimeout(){
+  clearTimeout(signalTimer);
+  signalTimer=setTimeout(()=>{ if(tracking) flagWeakSignal('No reliable GPS fix for 5 seconds'); },MAX_FIX_AGE_MS);
+}
 function onFix(pos){
-  const c=pos.coords, now=pos.timestamp;
-
-  if(c.accuracy>BAD_ACCURACY_M){
-    badFixStreak+=1;
-    if(badFixStreak>4 && !state.gpsWeak){
-      state.gpsWeak=true;
-      logEvent('gps_weak_flagged', 'accuracy '+Math.round(c.accuracy)+'m for '+badFixStreak+' consecutive fixes',
-        {lat:c.latitude, lng:c.longitude, accuracy:c.accuracy});
-    }
+  if(!tracking || state.finished) return;
+  const c=pos && pos.coords, now=pos && pos.timestamp;
+  if(!c || !validCoordinate(c.latitude,c.longitude) || !Number.isFinite(c.accuracy) || c.accuracy<0 ||
+      !Number.isFinite(now) || now>Date.now()+1000 || Date.now()-now>MAX_FIX_AGE_MS ||
+      (state.lastFix && now<=state.lastFix.t)){
+    resetContinuity(); return;
+  }
+  if(c.accuracy>=BAD_ACCURACY_M){
+    resetContinuity(); badFixStreak+=1;
+    if(badFixStreak>=5) flagWeakSignal('Poor GPS accuracy for '+badFixStreak+' consecutive fixes',
+      {lat:c.latitude,lng:c.longitude,accuracy:c.accuracy});
     return;
   }
-  badFixStreak=0;
-  state.gpsWeak=false;
-
-  let speedMps;
-  if(typeof c.speed==='number' && !Number.isNaN(c.speed)){
-    speedMps=c.speed;
-  } else if(state.lastFix){
-    const d=haversineMeters(state.lastFix.lat,state.lastFix.lng,c.latitude,c.longitude);
-    const dtSec=(now-state.lastFix.t)/1000;
-    speedMps = dtSec>0 ? d/dtSec : 0;
-  } else {
-    speedMps=0;
+  const previous=state.lastFix;
+  const gap=previous ? now-previous.t : 0;
+  const continuous=previous && gap<=MAX_FIX_AGE_MS && !state.gpsWeak && !continuityBroken;
+  const distance=previous ? haversineMeters(previous.lat,previous.lng,c.latitude,c.longitude) : 0;
+  if(previous && distance>MAX_SPEED_MPS*gap/1000+previous.accuracy+c.accuracy){
+    flagWeakSignal('Implausible GPS jump rejected'); return;
   }
-  state.lastSpeedMps=speedMps;
-  const dt = state.lastFix ? now-state.lastFix.t : 0;
-
-  if(state.lastFix) updateDwell(speedMps, dt);
-  checkOffRoute(c.latitude, c.longitude, dt);
+  if(!continuous) resetContinuity();
+  let speedMps=Number.isFinite(c.speed) && c.speed>=0 && c.speed<=MAX_SPEED_MPS ? c.speed : null;
+  if(speedMps===null && continuous){
+    speedMps=distance<=Math.max(previous.accuracy,c.accuracy) ? 0 : distance/(gap/1000);
+  }
   state.lastFix={lat:c.latitude,lng:c.longitude,t:now,accuracy:c.accuracy};
-
-  if(!state.finished && state.context==='motion' && !state.confirmHold && !state.offRouteActive){
-    advanceMotionProgress(c.accuracy);
+  state.lastSpeedMps=speedMps;
+  continuityBroken=false;
+  badFixStreak=0;
+  if(state.gpsWeak){ state.gpsWeak=false; logEvent('gps_recovered','Reliable GPS resumed'); }
+  armSignalTimeout();
+  if(continuous && speedMps!==null) updateDwell(speedMps,gap);
+  if(continuous) checkOffRoute(c.latitude,c.longitude,gap);
+  if(state.routeStarted){
+    const target=targetWaypoint();
+    if(target) state.trueDist=haversineMeters(c.latitude,c.longitude,target.lat,target.lng);
   }
-
+  if(state.confirmHold && (state.offRouteActive || !confirmationPositionValid())) cancelConfirmation();
+  // Arrival also works while stopped; dwell must not prevent detection at the destination.
+  if(!state.finished && !state.confirmHold && !state.offRouteActive) advanceMotionProgress();
   render();
 }
 function onFixError(err){
-  console.error('Geolocation error', err);
+  if(!tracking) return;
+  logEvent('gps_error', 'code '+err.code+': '+err.message);
+  flagWeakSignal('GPS error '+err.code);
 }
 
 /* ============ RENDER DISPATCH ============
@@ -268,30 +328,40 @@ function onFixError(err){
 let onEngineUpdate = null;
 function setEngineUpdateHandler(fn){ onEngineUpdate=fn; }
 function render(){
-  if(state.context==='motion') renderMotion();
+  if(state.context==='motion' && state.gpsWeak) renderMotionOverlay();
+  else if(state.context==='motion') renderMotion();
   else renderStationary();
   if(onEngineUpdate) onEngineUpdate(state);
 }
 
 /* ============ START / STOP ============ */
 function startTest(route){
+  const validated=normalizeRoute(route); // Validate before interrupting a live session.
   stopTest();
-  loadRoute(route);
+  loadRoute(validated);
+  tracking=true;
+  const generation=++trackingGeneration;
   Object.assign(state,{
     context:'motion', condition:'normal', cue:ROUTE[0].cue, rot:ROUTE[0].rot||0,
     trueDist:ROUTE[0].dist, currentSeg:ROUTE[0].seg, jitter:false,
     confidenceFiring:false, confidenceVal:5, recoveryGlyph:'offroute',
     situation:'normal', drivingFromRoute:true, actionInverted:false, meterInverted:false, showFullMap:false,
     legIndex:0, distSoFar:0, stopDwell:0, moveDwell:0, confirmHold:false, finished:false,
-    gpsWeak:false, lastFix:null, lastSpeedMps:null,
+    gpsWeak:false, lastFix:null, lastSpeedMps:null, routeStarted:false,
     offRouteActive:false, offRouteElapsed:0
   });
   badFixStreak=0; offRouteBadStreak=0; offRouteGoodStreak=0;
   render();
-  watchId=navigator.geolocation.watchPosition(onFix, onFixError,
+  armSignalTimeout();
+  watchId=navigator.geolocation.watchPosition(
+    pos=>{if(tracking && generation===trackingGeneration) onFix(pos);},
+    err=>{if(tracking && generation===trackingGeneration) onFixError(err);},
     {enableHighAccuracy:true, maximumAge:1000, timeout:5000});
 }
 function stopTest(){
+  tracking=false; continuityBroken=true; trackingGeneration+=1;
+  clearTimeout(signalTimer);
+  state.confirmHold=false; waypointCandidateAt=null; previousProgressFix=null;
   if(watchId!=null){ navigator.geolocation.clearWatch(watchId); watchId=null; }
   clearTimeout(confirmTimer); clearTimeout(confTimer);
 }

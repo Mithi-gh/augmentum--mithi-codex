@@ -10,12 +10,13 @@
 -->
 <link rel="stylesheet" href="style.css">
 <style>
-  body{padding:24px}
+  body{padding:12px}
   .harness{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start}
   .phone{width:368px;height:832px;background:#000;border:1px solid rgba(255,255,255,.08)}
   .controls{font-family:-apple-system,sans-serif;font-size:13px;min-width:280px}
   .controls button{font-size:14px;padding:8px 14px;margin-right:8px;margin-bottom:10px}
   .controls select{font-size:14px;padding:6px;margin-bottom:10px}
+  @media(max-width:420px){.phone{max-width:100%;height:min(832px,90svh)} .controls{min-width:0;width:100%} input[type=file]{max-width:100%}}
   #debug{white-space:pre-wrap;background:#141619;color:#9fe19f;padding:10px;border-radius:8px;
     font-family:ui-monospace,Menlo,monospace;font-size:12px;line-height:1.5}
   .gpsWeak{color:#E8A33D;font-weight:700}
@@ -47,7 +48,7 @@
     <div class="preflight">
       <h3>Pre-flight</h3>
       <div class="pfrow"><span class="pfdot" id="pfDotLocation"></span><span class="pflabel">Location granted</span></div>
-      <div class="pfrow"><span class="pfdot" id="pfDotWakeLock"></span><span class="pflabel">Wake lock available</span></div>
+      <div class="pfrow"><span class="pfdot" id="pfDotWakeLock"></span><span class="pflabel">Wake lock available (optional)</span></div>
       <div class="pfrow"><span class="pfdot" id="pfDotAccuracy"></span><span class="pflabel">GPS accuracy under 20m</span><span class="pfval" id="pfAccuracyVal">—</span></div>
     </div>
     <div class="preflight">
@@ -62,7 +63,8 @@
       <input type="text" id="sessionLabelInput">
     </div>
     <div>
-      <select id="routeSelect"></select>
+      <label>Import route JSON <input type="file" id="routeImport" accept=".json,application/json"></label><br>
+      <select id="routeSelect" aria-label="Saved route"></select>
       <button id="startBtn" onclick="onStartClick()" disabled>Start test</button>
       <button id="stopBtn" onclick="onEndSessionClick()" disabled>End session</button>
     </div>
@@ -84,6 +86,7 @@
 
 <script src="glyphs.js"></script>
 <script src="render.js"></script>
+<script src="route.js"></script>
 <script src="engine.js"></script>
 <script src="preflight.js"></script>
 <script src="log.js"></script>
@@ -93,9 +96,9 @@ function renderPreflight(p){
   document.getElementById('pfDotWakeLock').classList.toggle('on', p.wakeLockAvailable);
   document.getElementById('pfDotAccuracy').classList.toggle('on', p.gpsAccuracy!=null && p.gpsAccuracy<PREFLIGHT_GPS_OK_M);
   document.getElementById('pfAccuracyVal').textContent = p.gpsAccuracy!=null ? Math.round(p.gpsAccuracy)+'m' : '—';
-  document.getElementById('startBtn').disabled = !p.allGreen;
+  document.getElementById('startBtn').disabled = tracking || !p.allGreen || !document.getElementById('routeSelect').value;
 }
-startPreflightChecks(renderPreflight);
+
 
 function renderDeviceStatus(d){
   document.getElementById('devDotFullscreen').classList.toggle('on', d.fullscreen);
@@ -110,13 +113,27 @@ setDeviceStatusHandler(renderDeviceStatus);
 function populateRouteOptions(){
   const sel=document.getElementById('routeSelect');
   const names=[];
-  for(let i=0;i<localStorage.length;i++){
+  try { for(let i=0;i<localStorage.length;i++){
     const k=localStorage.key(i);
     if(k && k.startsWith('augmentumRoute:')) names.push(k.slice('augmentumRoute:'.length));
   }
+  } catch(e) { console.warn('Route storage unavailable',e); }
   sel.innerHTML = names.length
-    ? names.map(n=>`<option value="${n}">${n}</option>`).join('')
+    ? names.map(n=>`<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('')
     : '<option value="">No saved routes — record one first</option>';
+}
+async function importRoute(file){
+  if(!file) return;
+  try{
+    if(file.size>2000000) throw new Error('Route file must be under 2 MB.');
+    const route=normalizeRoute(JSON.parse(await file.text()));
+    const name=prompt('Name this route:',file.name.replace(/\.json$/i,''));
+    if(!name || !name.trim()) return;
+    const key='augmentumRoute:'+name.trim();
+    if(localStorage.getItem(key)!==null && !confirm('Replace the existing route '+name+'?')) return;
+    localStorage.setItem(key,JSON.stringify(route));
+    populateRouteOptions(); document.getElementById('routeSelect').value=name.trim(); emitPreflightUpdate();
+  }catch(e){ alert('Cannot import route: '+e.message); }
 }
 function onStartClick(){
   const name=document.getElementById('routeSelect').value;
@@ -124,8 +141,8 @@ function onStartClick(){
   if(!('geolocation' in navigator)){ alert('Geolocation not available in this browser.'); return; }
   let route;
   try{ route=JSON.parse(localStorage.getItem('augmentumRoute:'+name)); }
-  catch(e){ alert('Saved route is corrupt JSON.'); return; }
-  if(!Array.isArray(route) || route.length<2){ alert('Route needs at least two waypoints.'); return; }
+  catch(e){ alert('Saved route cannot be read: '+e.message); return; }
+  try { route=normalizeRoute(route); } catch(e){ alert(e.message); return; }
   // single-rider pilot: a plain date-time label is enough, no roster/participant picker.
   // Read from a field filled in ahead of time, NOT a prompt() call in this handler — a
   // blocking native dialog here would burn the click's transient user-activation window
@@ -133,7 +150,7 @@ function onStartClick(){
   const label=document.getElementById('sessionLabelInput').value.trim() || new Date().toISOString();
   startSession(label);
   document.getElementById('summaryPanel').classList.add('hidden');
-  armDeviceReliability(document.getElementById('phone'));
+  armDeviceReliability(document.documentElement);
   stopPreflightChecks();
   startTest(route);
   document.getElementById('startBtn').disabled=true;
@@ -141,10 +158,11 @@ function onStartClick(){
 }
 function onEndSessionClick(){
   stopTest();
+  endSession(state.finished?'completed':'ended');
   disarmDeviceReliability();
   document.getElementById('stopBtn').disabled=true;
   showSessionSummary();
-  startPreflightChecks(renderPreflight); // re-arm the gate so another test run can start clean
+  startPreflightChecks(renderPreflight); // fresh GPS gate for the next session
   document.getElementById('sessionLabelInput').value = new Date().toISOString(); // fresh default for the next run
 }
 function fmtDuration(ms){
@@ -171,9 +189,15 @@ setEngineUpdateHandler(s=>{
     `trueDist: ${s.trueDist!=null?Math.round(s.trueDist):'—'} m\ndistSoFar: ${Math.round(s.distSoFar)} m / ${Math.round(TOTAL_ROUTE_DIST)} m\n`+
     `speed: ${s.lastSpeedMps!=null?s.lastSpeedMps.toFixed(2):'—'} m/s\nstopDwell: ${s.stopDwell} ms   moveDwell: ${s.moveDwell} ms\n`+
     `finished: ${s.finished}\n`+
-    (s.gpsWeak ? `<span class="gpsWeak">GPS WEAK (accuracy > 20m for 5+ fixes)</span>` : 'gps: ok')+
-    `\nlog records: ${typeof logRecords!=='undefined'?logRecords.length:0}`;
+    (!s.routeStarted ? 'Waiting near the recorded start coordinate\n' : '')+
+    (s.gpsWeak ? `<span class="gpsWeak">GPS WEAK — waiting for reliable signal</span>` : 'gps: ok')+
+    `\nlog records: ${typeof logRecords!=='undefined'?logRecords.length:0}`+
+    (logPersistenceError ? '\nLOG NOT SAVED — download before leaving' : '');
+  if(s.finished && !document.getElementById('stopBtn').disabled) onEndSessionClick();
 });
 populateRouteOptions();
+startPreflightChecks(renderPreflight);
+document.getElementById('routeSelect').addEventListener('change',emitPreflightUpdate);
+document.getElementById('routeImport').addEventListener('change',event=>{importRoute(event.target.files[0]);event.target.value='';});
 document.getElementById('sessionLabelInput').value = new Date().toISOString();
 </script>

@@ -1,0 +1,13 @@
+{
+  "name": "augmentum",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Cycling navigation research prototype",
+  "engines": {"node": ">=22"},
+  "scripts": {
+    "dev": "python3 tools/serve.py",
+    "test": "node --test tests/*.test.cjs",
+    "test:browser": "node tests/browser.cjs"
+  },
+  "devDependencies": {"playwright": "1.62.1"}
+}
