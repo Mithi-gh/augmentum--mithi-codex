@@ -1,11 +1,18 @@
-/* Full pages and real render/log scripts; only the device sensor boundary is simulated. */
+/* Full pages and real render/log scripts. GPS is simulated; one regression delays real fullscreen exit. */
 const {chromium}=require('playwright');
 const assert=require('node:assert/strict');
 const {spawn}=require('node:child_process');
 const {once}=require('node:events');
 const fs=require('node:fs/promises');
-const path=require('node:path');
 const {root}=require('./helpers.cjs');
+async function assertDeviceCleanup(page){
+ assert.equal(await page.evaluate(()=>rideDeviceReliabilityActive),false,'Session must disarm device reliability');
+ // The summary is synchronous, but the browser's exitFullscreen() promise is not.
+ // Wait on the resulting state, without weakening the assertion or adding a sleep.
+ await page.waitForFunction(()=>!document.fullscreenElement,null,{timeout:5000});
+ assert.equal(await page.evaluate(()=>!!document.fullscreenElement),false,'Fullscreen must exit after session completion');
+}
+let activeScenario='server startup';
 (async()=>{
  const server=spawn('python3',['tools/serve.py','--port','0'],{cwd:root,stdio:['ignore','pipe','pipe']});
  let browser;
@@ -13,8 +20,20 @@ const {root}=require('./helpers.cjs');
  const line=await Promise.race([once(server.stdout,'data'),once(server,'exit').then(()=>{throw Error('Server exited')}),new Promise((_,reject)=>{const t=setTimeout(()=>reject(Error('Server startup timeout')),10000);t.unref()})]);
  const port=String(line[0]).match(/port (\d+)/)[1];
  browser=await chromium.launch({...(process.env.CHROMIUM_PATH?{executablePath:process.env.CHROMIUM_PATH}:{}),headless:true});
- for(const mobile of [false,true]){
+ console.log(`Browser workflows: Node ${process.version}, Chromium ${browser.version()}`);
+ for(const {mobile,exitDelay} of [{mobile:false,exitDelay:0},{mobile:true,exitDelay:0},{mobile:false,exitDelay:2000}]){
+ const mode=exitDelay?'desktop (delayed fullscreen exit)':mobile?'mobile':'desktop';
+ activeScenario=mode;
+ console.log(`START ${mode}`);
  const context=await browser.newContext({viewport:mobile?{width:390,height:844}:{width:1200,height:900},isMobile:mobile,hasTouch:mobile,acceptDownloads:true});
+ if(exitDelay)await context.addInitScript(delay=>{
+   const exit=document.exitFullscreen?.bind(document);
+   window.fullscreenExitRequests=0;
+   if(exit)document.exitFullscreen=()=>{
+     window.fullscreenExitRequests+=1;
+     return new Promise((resolve,reject)=>setTimeout(()=>exit().then(resolve,reject),delay));
+   };
+ },exitDelay);
  await context.addInitScript(()=>{
    let id=0,fix={latitude:0,longitude:0,accuracy:3,speed:4};const watches=new Map();
    const position=()=>({timestamp:Date.now(),coords:{...fix}});
@@ -54,8 +73,7 @@ const {root}=require('./helpers.cjs');
  await page.locator('#summaryPanel').waitFor({state:'visible'});
  assert.equal(await page.evaluate(()=>state.finished),true);
  assert.equal(await page.locator('#sumWaypoints').textContent(),'1');
- assert.equal(await page.evaluate(()=>rideDeviceReliabilityActive),false);
- assert.equal(await page.evaluate(()=>!!document.fullscreenElement),false);
+ await assertDeviceCleanup(page);
  assert.equal(await page.locator('#scr img').count(),0);
  download=page.waitForEvent('download');await page.getByRole('button',{name:'Download log',exact:true}).click();
  const records=JSON.parse(await fs.readFile(await (await download).path(),'utf8'));
@@ -73,13 +91,15 @@ const {root}=require('./helpers.cjs');
  for(const y of [40,60,80,98])await gps(100,y);
  await gps(100,100,3,0);await page.clock.runFor(1300);
  assert.equal(await page.evaluate(()=>state.finished),true);assert.equal(await page.locator('#sumWaypoints').textContent(),'2');
+ await assertDeviceCleanup(page);
+ if(exitDelay && !await page.evaluate(()=>window.fullscreenExitRequests))console.log('NOTE: Fullscreen unavailable; delayed-exit path was not exercised in this browser');
  assert.ok(await page.evaluate(()=>TOTAL_ROUTE_DIST>199 && TOTAL_ROUTE_DIST<201));
  assert.ok(await page.evaluate(()=>getLogRecords().some(r=>r.event_type==='route_completed' && r.routeId==='browser-polyline' && r.progressMeters>199)));
- console.log(`PASS ${mobile?'mobile':'desktop'} geometry: polyline import, along-route distances, outgoing turn evidence, ordered completion and research metadata`);
+ console.log(`PASS ${mode} geometry: polyline import, along-route distances, outgoing turn evidence, ordered completion and research metadata`);
  if(mobile)assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),'mobile overflow');
  assert.deepEqual(errors,[]);assert.deepEqual(failed,[]);
- console.log(`PASS ${mobile?'mobile':'desktop'}: record/export/import, escaped landmarks, stationary/motion, completion, device cleanup, log export, GPS expiry`);
+ console.log(`PASS ${mode}: record/export/import, escaped landmarks, stationary/motion, completion, device cleanup, log export, GPS expiry`);
  await context.close();
  }
  } finally {if(browser)await browser.close();server.kill();await once(server,'exit').catch(()=>{})}
-})().catch(e=>{console.error(e);process.exitCode=1});
+})().catch(e=>{console.error(`Browser workflow failed during ${activeScenario}:`,e);process.exitCode=1});

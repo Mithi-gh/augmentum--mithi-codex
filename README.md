@@ -47,7 +47,9 @@ Browser checks run complete recorder and harness workflows at desktop and mobile
 viewport sizes using a simulated sensor boundary. They cover route recording,
 JSON download/import, stationary/motion transitions, arrival, device cleanup, log
 export, stale preflight and escaped user content. No hardware GPS is required.
-CI runs these checks without deployment.
+A separate desktop regression deliberately delays fullscreen exit to verify that
+cleanup checks await browser completion. Browser failures include the scenario
+name and browser/runtime versions. CI runs these checks without deployment.
 
 ## Use a phone on the same LAN
 
