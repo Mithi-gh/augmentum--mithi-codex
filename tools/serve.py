@@ -5,6 +5,7 @@ from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import ssl
+from urllib.parse import unquote, urlsplit
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--host', default='127.0.0.1')
@@ -16,6 +17,26 @@ if bool(args.cert) != bool(args.key):
     parser.error('--cert and --key must be supplied together')
 
 class Handler(SimpleHTTPRequestHandler):
+    def permitted(self):
+        parts = unquote(urlsplit(self.path).path).split('/')
+        target = Path(self.translate_path(self.path)).resolve()
+        if any(part.startswith('.') for part in parts if part) or not target.is_relative_to(root):
+            self.send_error(403, 'Private development files are not served')
+            return False
+        return True
+
+    def do_GET(self):
+        if self.permitted():
+            super().do_GET()
+
+    def do_HEAD(self):
+        if self.permitted():
+            super().do_HEAD()
+
+    def list_directory(self, path):
+        self.send_error(403, 'Directory listing disabled')
+        return None
+
     def end_headers(self):
         self.send_header('Cache-Control', 'no-store')
         super().end_headers()

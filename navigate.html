@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Augmentum · Navigate</title>
+    <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="node_modules/leaflet/dist/leaflet.css" />
+    <link rel="stylesheet" href="navigation.css" />
+  </head>
+  <body>
+    <main class="journey">
+      <h1>Augmentum</h1>
+      <p>Cycling navigation</p>
+      <section id="planner" class="planner">
+        <details>
+          <summary>Mapbox connection</summary>
+          <label
+            >Restricted public token
+            <input
+              id="mapToken"
+              type="password"
+              autocomplete="off"
+              placeholder="pk.…"
+          /></label>
+          <p>
+            Online search, routes and tiles may incur Mapbox charges. Token
+            stays in this tab.
+          </p>
+          <label
+            ><input id="onlineConsent" type="checkbox" /> I authorize online
+            Mapbox requests for this session.</label
+          ><button id="connect">Enable Mapbox</button>
+        </details>
+        <label
+          >Starting point
+          <input
+            id="originSearch"
+            type="search"
+            autocomplete="off"
+            placeholder="Search for a starting point"
+            aria-controls="originResults"
+        /></label>
+        <div
+          id="originResults"
+          role="listbox"
+          aria-label="Starting point suggestions"
+        ></div>
+        <button id="useGps">Use current location</button>
+        <label
+          >Destination
+          <input
+            id="destinationSearch"
+            type="search"
+            autocomplete="off"
+            placeholder="Address or landmark"
+            aria-controls="destinationResults"
+        /></label>
+        <div
+          id="destinationResults"
+          role="listbox"
+          aria-label="Destination suggestions"
+        ></div>
+        <button id="generate">Find cycling routes</button>
+        <div id="routeChoices" aria-label="Cycling route choices"></div>
+        <button id="startNavigation" disabled>Start navigation</button>
+        <p>Infrastructure confidence is unknown unless verified.</p>
+      </section>
+      <p id="journeyStatus" role="status" aria-live="polite">
+        Enable Mapbox, then choose your starting point and destination.
+      </p>
+      <p id="locationStatus" role="status"></p>
+      <div id="previewMap" aria-label="Route preview map"></div>
+      <section id="ride" hidden>
+        <div class="phone" id="phone">
+          <div class="brd" id="brd"></div>
+          <div class="scr" id="scr"></div>
+          <div class="fullmapview" id="fullmapview" style="display: none"></div>
+        </div>
+        <div class="ride-controls">
+          <button id="pauseNavigation">Pause</button
+          ><button id="resumeNavigation" hidden>Resume</button
+          ><button id="retryRoute">Reroute</button
+          ><button id="endNavigation">End navigation</button>
+        </div>
+      </section>
+      <button id="recenter">Recenter map</button>
+      <p id="eta" aria-live="off"></p>
+      <button id="exportLog">Download research log</button>
+      <p><a href="test-engine.html">Research harness and recorded routes</a></p>
+    </main>
+    <script src="node_modules/leaflet/dist/leaflet.js"></script>
+    <script src="glyphs.js"></script>
+    <script src="render.js"></script>
+    <script src="route.js"></script>
+    <script src="geometry.js"></script>
+    <script src="map-matcher.js"></script>
+    <script src="engine.js"></script>
+    <script src="preflight.js"></script>
+    <script src="log.js"></script>
+    <script src="routing.js"></script>
+    <script src="map-view.js"></script>
+    <script src="navigation.js"></script>
+  </body>
+</html>

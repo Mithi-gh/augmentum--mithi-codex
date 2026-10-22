@@ -1,5 +1,8 @@
 # Geometry-aware navigation architecture (Phase 2)
 
+Phase 3 extends these boundaries without replacing the engine. See
+[the consumer workflow, provider boundary and validation limits](phase3.md).
+
 Based exactly on `cd5e77ec5d9d6bae5638051a8472132e6b741b9f` from
 `Mithi-gh/augmentum--mithi-codex`, branch `development/navigation-foundation`.
 Remote verification at the start of this work showed main still at `3db349d`.

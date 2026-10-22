@@ -2,16 +2,18 @@
 
 A cycling navigation research prototype: an existing motion/stationary interface,
 GPS navigation engine, route recorder, and local research logs. Vanilla HTML,
-CSS, and JavaScript; no application framework, bundler, backend, or runtime npm
-dependencies. The map graphic is an illustration, not a road map. Rerouting is
-not implemented.
+CSS, and JavaScript; no application framework, bundler or backend. The research
+harness remains dependency-free. The Phase 3 consumer entry point adds Leaflet
+for real Mapbox raster maps, search and cycling routes without a framework or backend.
 
 ## Run locally
 
-Requires Python 3.10+ (server). Node 22+ is needed only for tests and npm shortcuts.
+Requires Python 3.10+ (server) and Node 22+ to install Leaflet and run tests.
+After installation the browser application is static; no Node backend runs.
 From the repository root:
 
 ```sh
+npm ci  # install Leaflet and development tools
 python3 tools/serve.py
 # Equivalent: npm run dev
 ```
@@ -35,7 +37,7 @@ after reload and does not track reliably while backgrounded.
 
 ```sh
 npm test                          # deterministic GPS/unit tests; no npm install needed
-npm ci                            # only browser-test tooling
+npm ci                            # Leaflet and browser/visual test tooling
 npx playwright install chromium  # browser download; Linux may need install --with-deps
 npm run test:browser              # starts/stops its own development server
 ```
@@ -50,6 +52,10 @@ export, stale preflight and escaped user content. No hardware GPS is required.
 A separate desktop regression deliberately delays fullscreen exit to verify that
 cleanup checks await browser completion. Browser failures include the scenario
 name and browser/runtime versions. CI runs these checks without deployment.
+
+Additional Phase 3 checks: `npm run test:journey` (mocked provider, desktop/mobile)
+and `npm run test:visual` (approved reference screenshots). Set `CHROMIUM_PATH`
+for these commands when using an existing browser as described above.
 
 ## Use a phone on the same LAN
 
@@ -109,5 +115,40 @@ The browser suite covers both legacy and geometry formats at desktop/mobile size
 the script suite includes curves, crossings, parallel paths, loops, U-turns,
 stationary jitter, walking/cycling speeds, 5m/10m/20m/50m accuracy, signal recovery
 and premature-arrival protection.
+
+## Phase 3: search, plan and navigate
+
+Open `navigate.html` from the landing page's **Navigate** link. This is the
+consumer workflow; the existing recorder and research harness remain available.
+
+1. Obtain a **public** Mapbox browser token beginning `pk.`. Restrict it to your
+   actual local/HTTPS phone origins and the public read services needed for the
+   configured style, Directions and Geocoding. Never enter an `sk.` secret token.
+2. Open **Mapbox connection**, enter the token and explicitly authorize online
+   requests. Search suggestions, maps and routes may incur provider charges.
+   The token stays in this tab's memory; it is not saved or written to logs.
+3. Use current GPS or search for your starting point, then search for a
+   destination. Select a suggestion for each; typing alone does not select a place.
+4. Select **Find cycling routes**, review the preview and available choices, then
+   **Start navigation**. Allow GPS, keep the page visible and acquire the route
+   start. A manual planning origin does not simulate or override actual GPS.
+5. Pause/resume or end using the controls outside the approved navigation display.
+   The stationary map can be expanded; drag to stop following, then use Recenter.
+   ETA is an estimate from provider duration and remaining matched distance.
+6. Off-route navigation requests one replacement per episode with a 15s cooldown,
+   provided fresh GPS accuracy is <=10m. A validated route is activated in the same
+   research session. Failed requests retain the old route; retry manually when safe.
+
+For a phone, use the **trusted HTTPS LAN instructions above**, and open
+`navigate.html` on that HTTPS origin. No deployment is needed. Private `.git`,
+`.local` and other dot paths and directory listings are not served by the local
+server. The server remains a private development tool, not a production host.
+
+See [Phase 3 provider setup, architecture and limits](docs/phase3.md). The delivered
+integration is validated using mocked APIs and tiles. **Live Mapbox account access,
+real road imagery, routing quality and physical iPhone/Android GPS have not been
+verified here.** Maps remain north-up; a heading marker is used when the device
+supplies credible bearing. This build does not promise background location or
+restore an active ride after closing the tab. Download important research logs.
 
 See [navigation audit](docs/navigation-audit.md) and [prioritized roadmap](docs/roadmap.md).

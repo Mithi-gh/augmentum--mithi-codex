@@ -1,6 +1,11 @@
 # Prioritized implementation roadmap
 
-Phase 2 now supplies full polyline geometry, a versioned wire format, ordered
+Phase 3 now adds a consumer planner, Mapbox search/cycling adapter, Leaflet map,
+route selection, pause/resume and genuine replacement-route lifecycle. These are
+mock-validated; live provider/account and field validation are still required.
+See [Phase 3 configuration and limitations](phase3.md).
+
+Phase 2 supplies full polyline geometry, a versioned wire format, ordered
 matching, uncertainty/reacquisition states, along-route maneuvers and regression
 coverage. See [the implementation contract and limits](architecture.md). Legacy
 arrays retain foundation compatibility behavior. Thresholds are conservative
@@ -16,8 +21,8 @@ phase should remain reviewable and pass the simulated GPS suite before field use
 | Phase 2 · implemented | Versioned route model with dense geometry, maneuver indices, route ID/version and distance along the path. Keep an adapter for existing recorded JSON arrays. Separate maneuver semantics from display copy. | Synthetic tests cover curves, loops/crossings, parallel paths, U-turns, reverse travel, roundabout copy and start-away protection. Physical streets, grade separation and closely spaced maneuvers still require field validation. |
 | Phase 2 · implemented, field validation pending | Ordered projection/map matching onto the full polyline; bounded forward/backward search, accuracy-aware hysteresis, heading when credible, explicit lost/reacquiring state, elapsed-time off-route evidence. | Deterministic traces cover seeded GPS noise, interrupted signals, skipped turns and local recovery. Match ambiguity freezes progress; distant rejoining has no automatic global snap. Real urban-canyon/tunnel traces remain outstanding. |
 | P1 | Replayable, consented location fixtures and device validation matrix. Include browser visibility loss, clock/timer throttling, OS permission revocation and low battery. | Android Chrome and iOS Safari tested outdoors and while stopped; compare logs with ground truth, measure false off-route/arrival and transition latency before changing thresholds. |
-| Phase 3 · next | Real stationary/fullscreen maps; keep the motion glyph view. | Real road tiles, route polyline, location and uncertainty circle; attribution visible, rendering remains smooth, tile failure does not stop navigation. |
-| Phase 3 · next | Cycling route generation adapter plus deliberate rerouting. | Start/destination produces validated geometry and maneuvers; rate limit, timeout, no-route and provider error paths pass; rerouting claims only appear after a new route is accepted. |
+| Phase 3 · implemented; live validation pending | Real stationary/fullscreen maps; keep the motion glyph view. | Real road tiles, route polyline, location and uncertainty circle; attribution visible, rendering remains smooth, tile failure does not stop navigation. |
+| Phase 3 · implemented; live validation pending | Cycling route generation adapter plus deliberate rerouting. | Start/destination produces validated geometry and maneuvers; rate limit, timeout, no-route and provider error paths pass; rerouting claims only appear after a new route is accepted. |
 | P2 | Route-session lifecycle and research data durability. | Explicit started/paused/lost/completed/ended reasons, versioned event envelope, optional sampled trace with consent, IndexedDB writes/bounded retention and visible persistence/export recovery. Preserve existing JSON log export or supply an adapter. |
 | P3 | Usable stationary controls, accessible settings and route import/export UX. | Implement or visibly disable existing Reroute/Report stubs; accessible status, directional/roundabout copy, responsive layouts tested on device. No silent start without reliable positioning. |
 | P3 | Offline/PWA and operational design, only after route fidelity is proven. | Cache policy honors provider licences; offline status and stale data are explicit, service-worker upgrades preserve sessions. Evaluate native background-location support only if measured browser limits prevent the required ride workflow. |
@@ -81,3 +86,20 @@ obsolete requests and debounce GPS noise; preserve the original route and active
 session until replacement is accepted. Never mark a route updated merely because
 time elapsed. Freeze navigation if location confidence is insufficient to choose
 a new route. Log route version/reason/provider errors without credentials.
+
+
+## Phase 4 — prove real-world reliability
+
+1. Configure a restricted Mapbox public token; verify real search, origin/destination
+   snapping, route alternatives, Mapbox instruction/geometry alignment and tile
+   attribution/cycling coverage on representative local corridors. Check current
+   provider billing, privacy and terms before public staging or paid usage.
+2. Run consenting Android Chrome/iPhone Safari field sessions and record replayable
+   traces. Quantify false off-route, missed maneuvers, arrival and recovery latency.
+   Tune matching only from evidence, particularly after long gaps and near crossings.
+3. Add a deliberate recovery flow for rejoining beyond the matcher window, durable
+   session restoration/IndexedDB and optional sampled traces with consent. Evaluate
+   native background support only if measured browser limitations require it.
+4. Test accessibility with real assistive technology, battery use and memory over
+   multi-hour rides. Consider offline tiles only with provider licensing and a
+   clear stale-map policy. Keep accounts/social/monetization out of scope.
