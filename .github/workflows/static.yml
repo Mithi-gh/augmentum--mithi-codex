@@ -1,0 +1,50 @@
+name: Deploy staging to GitHub Pages
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: staging-pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Prepare staging website
+        shell: bash
+        run: |
+          mkdir -p _site/node_modules/leaflet
+          cp index.html navigate.html record-route.html test-engine.html _site/
+          cp ./*.js ./*.css _site/
+          cp -R fonts _site/
+          cp -R node_modules/leaflet/dist _site/node_modules/leaflet/
+          cp node_modules/leaflet/LICENSE _site/node_modules/leaflet/
+          touch _site/.nojekyll
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Deploy staging
+        id: deployment
+        uses: actions/deploy-pages@v4
