@@ -123,8 +123,13 @@ Before editing the interface, 390px and 1200px viewport references were captured
 normal, prepare, act, stationary and off-route states in `tests/visual/baseline`.
 The visual runner compares actual pixels to those references, masking only the
 map region deliberately being replaced. Small anti-aliasing differences between
-browser builds are tolerated (<1% pixels at a 0.1 color threshold); baselines are
-never automatically regenerated. Local results were 0% change in all ten views.
+browser builds are tolerated (<1.5% pixels at a 0.1 color threshold). CI's Chromium
+151 measured up to 1.05% raster variance against the Chromium 154 references.
+Exact rendered markup/glyph/copy hashes, stylesheet/font source hashes and computed
+color/typography/spacing checks independently protect the approved design. Negative
+controls verify that changed glyphs and font sizes fail, even within the pixel budget.
+Baselines are never automatically regenerated. Failed comparisons upload actual,
+expected and diff images plus browser metadata as CI artifacts. Local results were 0% change in all ten views.
 
 ## Running and validation
 

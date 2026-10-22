@@ -21,3 +21,10 @@ jobs:
       - run: npm run test:browser
       - run: npm run test:journey
       - run: npm run test:visual
+      - name: Upload visual failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: test-results/visual/
+          if-no-files-found: ignore
