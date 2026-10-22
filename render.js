@@ -85,6 +85,12 @@ function maneuverCopy(cue,band,rot){
   return rot && CUE_ROT[cue] && Math.sign(rot)!==Math.sign(CUE_ROT[cue])
     ? copy.map(v=>typeof v==='string'?v.replace(/left|right/g,w=>w==='left'?'right':'left'):v) : copy;
 }
+function routeInstruction(leg,band){
+  const copy=[...maneuverCopy(leg?.cue||state.cue,band,leg?.rot??state.rot)];
+  if(leg?.instruction)copy[1]=escapeHtml(leg.instruction);
+  else if(leg?.cue==='roundabout' && leg.exitNumber)copy[1]=(band==='act'?'Take exit ':'Exit ')+leg.exitNumber;
+  return copy;
+}
 function bandKey(c){ return c==='normal'?'rest':c; }
 function setBorder(kind){
   const b=document.getElementById('brd');
@@ -101,7 +107,7 @@ function nextRouteLeg(){
 function routeFillPct(){
   if(!state.drivingFromRoute) return 46;
   const leg=ROUTE[state.legIndex];
-  const done = state.distSoFar + (leg&&!leg.stop ? (leg.dist-state.trueDist) : 0);
+  const done = state.geometryAware ? state.progressAlongRoute : state.distSoFar + (leg&&!leg.stop ? (leg.dist-state.trueDist) : 0);
   return TOTAL_ROUTE_DIST>0 ? Math.max(0,Math.min(100,100*done/TOTAL_ROUTE_DIST)) : 0;
 }
 function routeBarLabel(){
@@ -113,14 +119,14 @@ function routeBarLabel(){
 function routeActionDefault(){
   const leg=ROUTE[state.legIndex];
   if(!leg) return {g:ARRIVE,rot:0,d:'',i:'Arrived',c:''};
-  const cp = maneuverCopy(leg.cue,bandKey(state.condition),leg.rot);
+  const cp = routeInstruction(leg,bandKey(state.condition));
   const d=fmtDistance(Math.round(state.trueDist));
   return {g:CUE_GLYPH[leg.cue], rot:leg.rot||0, d:d?`${d.num}${d.unit}`:'', i:cp[1], c:cp[2]};
 }
 function routeActionNext(){
   const leg=nextRouteLeg();
   if(!leg) return {g:ARRIVE, rot:0, d:'', i:'End of route', c:''};
-  return {g:CUE_GLYPH[leg.cue], rot:leg.rot||0, d:leg.dist+'m', i:maneuverCopy(leg.cue,'rest',leg.rot)[1], c:escapeHtml(leg.land||'')};
+  return {g:CUE_GLYPH[leg.cue], rot:leg.rot||0, d:leg.dist+'m', i:routeInstruction(leg,'rest')[1], c:escapeHtml(leg.land||'')};
 }
 function routeMeterDefault(){
   const leg=ROUTE[state.legIndex];
@@ -145,7 +151,7 @@ function renderMotion(){
       </div>${barHtml(routeFillPct(),routeBarLabel(),true)}`;
     setBorder('yellow');
   } else {
-    const cp=maneuverCopy(state.cue,bandKey(c),state.rot);
+    const cp=routeInstruction(ROUTE[state.legIndex],bandKey(c));
     const d=fmtDistance(c==='act'?null:Math.round(state.trueDist));
     const rot=state.rot||0;
     const glyphColor = c==='normal'?'#fff':c==='confirm'?'rgba(255,255,255,.56)':'var(--accent)';
@@ -172,13 +178,13 @@ function renderStationary(sOverride){
   if(state.showFullMap){ renderFullMap(); return; }
   document.getElementById('fullmapview').style.display='none';
   let s;
-  if(state.condition==='caution' || state.gpsWeak){
+  if(state.condition==='caution' || state.gpsWeak || state.matchUncertain){
     /* Caution overrides tone unconditionally: off-route wins over whatever situation,
        override param, or drivingFromRoute state was already on screen. Reuses the
        manual SIT_DATA.offroute card wholesale (its map/ctrls/caution tone are already
        exactly this case) and swaps in the live recovery glyph + copy from REC, the
        same lookup renderMotion's caution branch already reads off state.recoveryGlyph. */
-    const r=REC[state.gpsWeak?'signal':state.recoveryGlyph];
+    const r=REC[state.gpsWeak?'signal':state.offRouteActive?state.recoveryGlyph:'matching'];
     s=Object.assign({}, SIT_DATA.offroute, { act:{g:r.g, rot:0, d:'', i:r.i, c:r.c}, act2:{g:r.g,rot:0,d:'',i:r.i,c:r.c}, fill:routeFillPct(),blabel:routeBarLabel(),meter:[0,'Not surveyed',''],meter2:[0,'Not surveyed',''],ctrls:[] });
   }
   else if(sOverride){ s=sOverride; }
@@ -240,7 +246,7 @@ function renderFullMap(){
   const leg = state.drivingFromRoute ? ROUTE[state.legIndex] : SIT_DATA[state.situation]||{map:'norm',act:{g:ARROW,rot:-90,d:'90m',i:'Prepare left'}};
   const mapKind = state.drivingFromRoute ? 'norm' : (SIT_DATA[state.situation]?SIT_DATA[state.situation].map:'norm');
   const actD = state.drivingFromRoute ? Math.round(state.trueDist)+'m' : (SIT_DATA[state.situation]?SIT_DATA[state.situation].act.d:'90m');
-  const actI = state.drivingFromRoute ? (state.finished?'Arrived':state.condition==='caution'?REC[state.recoveryGlyph].i:maneuverCopy(state.cue,bandKey(state.condition),state.rot)[1]) : (SIT_DATA[state.situation]?SIT_DATA[state.situation].act.i:'Prepare left');
+  const actI = state.drivingFromRoute ? (state.finished?'Arrived':state.gpsWeak?REC.signal.i:state.matchUncertain&&!state.offRouteActive?REC.matching.i:state.condition==='caution'?REC[state.recoveryGlyph].i:routeInstruction(ROUTE[state.legIndex],bandKey(state.condition))[1]) : (SIT_DATA[state.situation]?SIT_DATA[state.situation].act.i:'Prepare left');
   const rot = state.drivingFromRoute ? (state.rot||0) : 0;
   fm.innerHTML=`${mapSvg(mapKind)}
     <div class="fmback" onclick="closeFullMap()">
@@ -254,7 +260,7 @@ function renderFullMap(){
 }
 
 function renderMotionOverlay(){
-  const key = state.gpsWeak ? 'signal' : state.eventStageName || 'offroute';
+  const key = state.gpsWeak ? 'signal' : state.offRouteActive ? 'offroute' : state.matchUncertain ? 'matching' : state.eventStageName || 'offroute';
   const r = REC[key] || REC.offroute;
   const html = `${r.unlocked?'<div class="badge">Unlocked copy</div>':''}
     <div class="motionwrap"><div class="conf"></div>

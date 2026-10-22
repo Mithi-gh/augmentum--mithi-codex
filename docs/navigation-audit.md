@@ -1,5 +1,9 @@
 # Navigation foundation audit
 
+This is the historical Phase 1 audit. Phase 2 changes the version 2 geometry
+workflow; see [current architecture and limitations](architecture.md). Legacy
+waypoint-array behavior remains compatible with the foundation regressions.
+
 Scope: `engine.js`, `render.js`, `preflight.js`, `log.js`, `record-route.html` and
 `test-engine.html`, inspected against main commit `3db349d`. Fixes preserve the
 existing interface, recorded route JSON shape, local log keys, event record fields,

@@ -61,6 +61,21 @@ const {root}=require('./helpers.cjs');
  const records=JSON.parse(await fs.readFile(await (await download).path(),'utf8'));
  for(const event of ['session_started','route_started','stationary_entered','stationary_exited','waypoint_reached','route_completed','session_ended'])assert.ok(records.some(r=>r.event_type===event),event);
  await page.clock.runFor(5001);assert.equal(await page.locator('#startBtn').isDisabled(),true);
+ // The same UI imports full geometry and completes a turn using outgoing evidence.
+ const geometryRoute={schemaVersion:2,id:'browser-polyline',geometry:[[0,0],[50/111320,0],[100/111320,0],[100/111320,50/111320],[100/111320,100/111320]],
+   maneuvers:[{geometryIndex:2,cue:'turn',rot:90},{geometryIndex:4,cue:'arrive'}]};
+ await page.locator('#routeImport').setInputFiles({name:'polyline.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(geometryRoute))});
+ await page.evaluate(()=>window.emitGps(0));
+ await page.locator('#sessionLabelInput').fill('geometry-browser-session');await page.locator('#startBtn').click();
+ for(const x of [0,20,40,60,80,100])await gps(x);
+ assert.equal(await page.evaluate(()=>state.legIndex),0);assert.equal(await page.evaluate(()=>state.confirmHold),false);
+ await gps(100,20);await page.clock.runFor(1300);assert.equal(await page.evaluate(()=>state.legIndex),1);
+ for(const y of [40,60,80,98])await gps(100,y);
+ await gps(100,100,3,0);await page.clock.runFor(1300);
+ assert.equal(await page.evaluate(()=>state.finished),true);assert.equal(await page.locator('#sumWaypoints').textContent(),'2');
+ assert.ok(await page.evaluate(()=>TOTAL_ROUTE_DIST>199 && TOTAL_ROUTE_DIST<201));
+ assert.ok(await page.evaluate(()=>getLogRecords().some(r=>r.event_type==='route_completed' && r.routeId==='browser-polyline' && r.progressMeters>199)));
+ console.log(`PASS ${mobile?'mobile':'desktop'} geometry: polyline import, along-route distances, outgoing turn evidence, ordered completion and research metadata`);
  if(mobile)assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),'mobile overflow');
  assert.deepEqual(errors,[]);assert.deepEqual(failed,[]);
  console.log(`PASS ${mobile?'mobile':'desktop'}: record/export/import, escaped landmarks, stationary/motion, completion, device cleanup, log export, GPS expiry`);

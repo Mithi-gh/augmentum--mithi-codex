@@ -15,7 +15,7 @@ function fixture({preflight=false,storageFails=false}={}){
     navigator:{geolocation:{watchPosition(ok,error){const key=++id;watches.set(key,{ok,error});return key},clearWatch(key){watches.delete(key)}}},
     localStorage:{getItem(k){return storage.get(k)??null},setItem(k,v){if(storageFails)throw Error('Quota exceeded');storage.set(k,v)}}});
   const run=s=>vm.runInContext(s,context);
-  for(const file of ['glyphs.js','render.js','route.js','engine.js','log.js',...(preflight?['preflight.js']:[])]) run(fs.readFileSync(path.join(root,file),'utf8'));
+  for(const file of ['glyphs.js','render.js','route.js','geometry.js','map-matcher.js','engine.js','log.js',...(preflight?['preflight.js']:[])]) run(fs.readFileSync(path.join(root,file),'utf8'));
   function advance(ms){const end=now+ms;while(true){let next;for(const [key,value]of timers)if(value.at<=end && (!next||value.at<next[1].at))next=[key,value];if(!next)break;now=next[1].at;timers.delete(next[0]);next[1].fn()}now=end}
   function fix(x,y=0,{ms=1000,accuracy=3,speed=4,timestamp,...coords}={}){
     advance(ms); const pos={timestamp:timestamp??now,coords:{latitude:y/111320,longitude:x/111320,accuracy,speed,...coords}};

@@ -17,3 +17,5 @@ const REC = {
   blocked:{n:'Route blocked',g:'<circle class="gs" cx="50" cy="50" r="34"/><path class="gs" d="M32 50 H68"/>',i:'Route blocked',c:'Finding another way',unlocked:true},
   caution:{n:'Caution',g:'<path class="gs" d="M50 18 L88 84 H12 Z"/><path class="gs" d="M50 44 V62"/><circle cx="50" cy="74" r="5.5" fill="currentColor" stroke="none"/>',i:'Cycle lane blocked',c:'Reported by 3 riders today',unlocked:true}
 };
+
+REC.matching={...REC.signal,n:'Position uncertain',i:'Position uncertain',c:'Waiting for a reliable route match'};

@@ -52,6 +52,7 @@ function logEvent(eventType, note, overrides){
   if(!sessionLabel) return null;
   const fix = (typeof state!=='undefined') ? state.lastFix : null;
   const o = overrides||{};
+  const hasRoute=eventType!=='session_started' && typeof routeModel!=='undefined' && routeModel;
   const record = {
     label: sessionLabel,
     timestamp: Date.now(),
@@ -62,6 +63,11 @@ function logEvent(eventType, note, overrides){
     condition: 'condition' in o ? o.condition : (typeof state!=='undefined' ? state.condition : null),
     cue: 'cue' in o ? o.cue : (typeof state!=='undefined' ? state.cue : null),
     segment: 'segment' in o ? o.segment : (typeof state!=='undefined' ? state.currentSeg : null),
+    routeId: hasRoute ? routeModel.id : null,
+    routeRevision: hasRoute ? routeModel.revision : null,
+    progressMeters: hasRoute && typeof state!=='undefined' && Number.isFinite(state.progressAlongRoute) ? state.progressAlongRoute : null,
+    matchStatus: hasRoute && typeof state!=='undefined' ? state.matchStatus??null : null,
+    matchedSegment: hasRoute && typeof latestMatch!=='undefined' && latestMatch ? latestMatch.segmentIndex : null,
     event_type: eventType,
     note: note||''
   };

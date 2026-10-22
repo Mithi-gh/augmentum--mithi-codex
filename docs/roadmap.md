@@ -1,17 +1,23 @@
 # Prioritized implementation roadmap
 
+Phase 2 now supplies full polyline geometry, a versioned wire format, ordered
+matching, uncertainty/reacquisition states, along-route maneuvers and regression
+coverage. See [the implementation contract and limits](architecture.md). Legacy
+arrays retain foundation compatibility behavior. Thresholds are conservative
+research defaults and still require physical-device/field validation.
+
 The current browser code and navigation interface remain the foundation. A map
 library and routing provider can be integrated without a framework rewrite. Each
 phase should remain reviewable and pass the simulated GPS suite before field use.
 
 | Order | Deliverable | Completion criteria |
 | --- | --- | --- |
-| P0 · this PR | Validated route/GPS inputs, conservative progress and arrival, continuity-aware dwell, honest off-route state, session cleanup, preserved logs, local/HTTPS server, deterministic and browser tests. | Tests and local server checks pass; audit records remaining geometry limitations. |
-| P1 · next | Versioned route model with dense geometry, maneuver indices, route ID/version and distance along the path. Keep an adapter for existing recorded JSON arrays. Separate maneuver semantics from display copy. | Fixture routes cover curved streets, closely spaced turns, loops, crossings, bridges, reverse travel, arbitrary roundabout exits and a start away from the planned origin. No premature completion. |
-| P1 | Ordered projection/map matching onto the full polyline; bounded forward/backward search, accuracy-aware hysteresis, heading when credible, explicit lost/reacquiring state, elapsed-time off-route evidence. | Replay traces cover noisy urban canyons, tunnels, skipped maneuvers and rejoining before/after a turn. Distinguish missed-turn hypotheses from confirmed road matching; no silent waypoint skipping across loops. |
+| Phase 1 · complete | Validated route/GPS inputs, conservative progress and arrival, continuity-aware dwell, honest off-route state, session cleanup, preserved logs, local/HTTPS server, deterministic and browser tests. | Tests and local server checks pass; audit records remaining geometry limitations. |
+| Phase 2 · implemented | Versioned route model with dense geometry, maneuver indices, route ID/version and distance along the path. Keep an adapter for existing recorded JSON arrays. Separate maneuver semantics from display copy. | Synthetic tests cover curves, loops/crossings, parallel paths, U-turns, reverse travel, roundabout copy and start-away protection. Physical streets, grade separation and closely spaced maneuvers still require field validation. |
+| Phase 2 · implemented, field validation pending | Ordered projection/map matching onto the full polyline; bounded forward/backward search, accuracy-aware hysteresis, heading when credible, explicit lost/reacquiring state, elapsed-time off-route evidence. | Deterministic traces cover seeded GPS noise, interrupted signals, skipped turns and local recovery. Match ambiguity freezes progress; distant rejoining has no automatic global snap. Real urban-canyon/tunnel traces remain outstanding. |
 | P1 | Replayable, consented location fixtures and device validation matrix. Include browser visibility loss, clock/timer throttling, OS permission revocation and low battery. | Android Chrome and iOS Safari tested outdoors and while stopped; compare logs with ground truth, measure false off-route/arrival and transition latency before changing thresholds. |
-| P2 | Real stationary/fullscreen maps; keep the motion glyph view. | Real road tiles, route polyline, location and uncertainty circle; attribution visible, rendering remains smooth, tile failure does not stop navigation. |
-| P2 | Cycling route generation adapter plus deliberate rerouting. | Start/destination produces validated geometry and maneuvers; rate limit, timeout, no-route and provider error paths pass; rerouting claims only appear after a new route is accepted. |
+| Phase 3 · next | Real stationary/fullscreen maps; keep the motion glyph view. | Real road tiles, route polyline, location and uncertainty circle; attribution visible, rendering remains smooth, tile failure does not stop navigation. |
+| Phase 3 · next | Cycling route generation adapter plus deliberate rerouting. | Start/destination produces validated geometry and maneuvers; rate limit, timeout, no-route and provider error paths pass; rerouting claims only appear after a new route is accepted. |
 | P2 | Route-session lifecycle and research data durability. | Explicit started/paused/lost/completed/ended reasons, versioned event envelope, optional sampled trace with consent, IndexedDB writes/bounded retention and visible persistence/export recovery. Preserve existing JSON log export or supply an adapter. |
 | P3 | Usable stationary controls, accessible settings and route import/export UX. | Implement or visibly disable existing Reroute/Report stubs; accessible status, directional/roundabout copy, responsive layouts tested on device. No silent start without reliable positioning. |
 | P3 | Offline/PWA and operational design, only after route fidelity is proven. | Cache policy honors provider licences; offline status and stale data are explicit, service-worker upgrades preserve sessions. Evaluate native background-location support only if measured browser limits prevent the required ride workflow. |
@@ -41,15 +47,16 @@ one-way/access restrictions, surface/gradient data, turn instructions, roundabou
 ferries and stairs. Provider availability, current contracts and costs must be
 verified before selection; this PR makes no live API integration or subscription.
 
-Introduce a small provider boundary returning a neutral model:
+Use the implemented version 2 provider boundary (see architecture.md for validation) returning a neutral model:
 
 ```js
 {
   schemaVersion: 2,
   id: 'route-id',
+  revision: '1',
   geometry: [[longitude, latitude], /* full ordered path */],
   maneuvers: [{ geometryIndex: 42, cue: 'turn', rot: 90, instruction: 'Turn right' }],
-  distanceMeters: 1200,
+  // Distances are recomputed from geometry by the client.
   source: { provider: 'chosen-provider', profile: 'cycling', attribution: '...' }
 }
 ```
@@ -57,8 +64,9 @@ Introduce a small provider boundary returning a neutral model:
 Keep latitude/longitude order explicit: GeoJSON uses longitude first, whereas the
 recorder uses named lat/lng fields. Validate coordinates, distances and maneuver
 indices before activation. Retain provider instruction/exit number separately from
-the engine's semantic cue. Map matching should advance along geometry; maneuver
-confirmation should use ordered outgoing-leg evidence. The renderer consumes a
+the engine's semantic cue. The implemented matcher advances along geometry; maneuver
+confirmation uses ordered outgoing-leg evidence. Validate provider geometry and
+instruction adapters against this behavior before any real routing integration. The renderer consumes a
 stable view model, not provider-specific responses.
 
 Use a small server-side proxy only if the chosen provider requires a confidential
