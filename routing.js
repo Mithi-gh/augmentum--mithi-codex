@@ -161,11 +161,35 @@ const MapboxRoutes = (() => {
         signal?.removeEventListener("abort", abort);
       }
     }
-    async search(query, signal) {
+    async search(query, signal, { proximity, language, sessionToken } = {}) {
       if (query.trim().length < 3) return [];
+      const bias = {};
+      if (proximity) bias.proximity = point(proximity).join(",");
+      if (language) bias.language = language;
+      if (sessionToken) {
+        const data = await this.request(
+          "/search/searchbox/v1/suggest",
+          {
+            q: query.trim(),
+            limit: 10,
+            session_token: sessionToken,
+            ...bias,
+          },
+          signal,
+        );
+        if (!Array.isArray(data.suggestions))
+          throw Error("Invalid search response");
+        return data.suggestions.map((s) => ({
+          id: s.mapbox_id,
+          sessionToken,
+          label: [s.name, s.full_address || s.place_formatted]
+            .filter(Boolean)
+            .join(", "),
+        }));
+      }
       const data = await this.request(
         "/search/geocode/v6/forward",
-        { q: query.trim(), autocomplete: "true", limit: 5 },
+        { q: query.trim(), autocomplete: "true", limit: 10, ...bias },
         signal,
       );
       if (!Array.isArray(data.features)) throw Error("Invalid search response");
@@ -174,6 +198,21 @@ const MapboxRoutes = (() => {
         label:
           f.properties?.full_address ?? f.properties?.name ?? "Selected place",
       }));
+    }
+    async retrieve(result, signal) {
+      if (result.coordinate) return result;
+      if (!result.id || !result.sessionToken)
+        throw Error("Choose a valid suggestion");
+      const data = await this.request(
+        "/search/searchbox/v1/retrieve/" + encodeURIComponent(result.id),
+        { session_token: result.sessionToken },
+        signal,
+      );
+      const feature = data.features?.[0];
+      return {
+        label: result.label,
+        coordinate: point(feature?.geometry?.coordinates),
+      };
     }
     async routes(origin, destination, signal) {
       point(origin);

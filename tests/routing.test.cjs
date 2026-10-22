@@ -200,3 +200,56 @@ test("pause stops queued GPS and resume retains route and research session", () 
   assert.ok(f.events().some((e) => e.event_type === "session_resumed"));
 });
 module.exports = { response };
+
+test("local search biases addresses and uses a shared suggest/retrieve session for places", async () => {
+  const f = environment();
+  const urls = [];
+  f.c.fetcher = async (url) => {
+    urls.push(new URL(url));
+    return {
+      ok: true,
+      text: async () =>
+        JSON.stringify(
+          url.includes("/suggest")
+            ? {
+                suggestions: [
+                  {
+                    mapbox_id: "poi/example",
+                    name: "Local café",
+                    place_formatted: "Town",
+                  },
+                ],
+              }
+            : {
+                features: [
+                  {
+                    geometry: { coordinates: [77.1, 12.9] },
+                    properties: { full_address: "Address" },
+                  },
+                ],
+              },
+        ),
+    };
+  };
+  f.run("const client=new MapboxRoutes.Client('pk.fixture',{fetcher})");
+  const results = await f.run(
+    "client.search('café',undefined,{proximity:[77.1,12.9],language:'en',sessionToken:'session-1'})",
+  );
+  f.c.result = results[0];
+  const resolved = await f.run("client.retrieve(result)");
+  assert.equal(resolved.coordinate[0], 77.1);
+  assert.equal(urls[0].searchParams.get("proximity"), "77.1,12.9");
+  assert.equal(urls[0].searchParams.get("limit"), "10");
+  assert.equal(urls[0].searchParams.get("language"), "en");
+  assert.equal(
+    urls[1].searchParams.get("session_token"),
+    urls[0].searchParams.get("session_token"),
+  );
+  assert.match(urls[1].pathname, /poi%2Fexample/);
+  await f.run("client.search('address',undefined,{proximity:[77.1,12.9]})");
+  assert.match(urls[2].pathname, /geocode/);
+  await assert.rejects(
+    f.run("client.search('park',undefined,{proximity:[999,0]})"),
+    /Invalid location/,
+  );
+});

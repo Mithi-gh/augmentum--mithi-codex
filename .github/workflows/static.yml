@@ -39,6 +39,12 @@ jobs:
           cp node_modules/leaflet/LICENSE _site/node_modules/leaflet/
           touch _site/.nojekyll
 
+      - name: Configure tester access
+        env:
+          MAPBOX_PUBLIC_TOKEN: ${{ vars.MAPBOX_PUBLIC_TOKEN }}
+          MAPBOX_SEARCH_BOX: ${{ vars.MAPBOX_SEARCH_BOX }}
+        run: node tools/configure-staging.cjs _site
+
       - uses: actions/configure-pages@v5
 
       - uses: actions/upload-pages-artifact@v3

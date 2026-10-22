@@ -103,3 +103,14 @@ a new route. Log route version/reason/provider errors without credentials.
 4. Test accessibility with real assistive technology, battery use and memory over
    multi-hour rides. Consider offline tiles only with provider licensing and a
    clear stale-map policy. Keep accounts/social/monetization out of scope.
+
+### Tester onboarding and local search follow-up
+
+The planner now supports deployment-configured public access, place/address
+suggestions, nearby-result bias, an address-only fallback and a refined planning
+screen. Live navigation and research logging retain their existing contracts.
+Next: validate representative failed local queries and Search Box regional
+coverage with the real account, then collect phone field-test traces. If coverage
+is insufficient, compare a second search provider behind the independent adapter
+before changing routing or the navigation engine. Durable session recovery remains
+the next engine milestone; do not add accounts or a new stack for onboarding.

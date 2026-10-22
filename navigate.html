@@ -10,11 +10,18 @@
   </head>
   <body>
     <main class="journey">
-      <h1>Augmentum</h1>
-      <p>Cycling navigation</p>
+      <header class="planner-header">
+        <a class="brand" href="navigate.html">augmentum<span>↗</span></a
+        ><span class="prototype-badge">TEST RIDE</span>
+      </header>
+      <div class="planner-intro">
+        <p class="eyebrow">YOUR NEXT RIDE</p>
+        <h1>Where are we riding?</h1>
+        <p>Find a place. Choose your route. Enjoy the ride.</p>
+      </div>
       <section id="planner" class="planner">
-        <details>
-          <summary>Mapbox connection</summary>
+        <details id="connectionSettings">
+          <summary>Developer connection settings</summary>
           <label
             >Restricted public token
             <input
@@ -32,6 +39,14 @@
             Mapbox requests for this session.</label
           ><button id="connect">Enable Mapbox</button>
         </details>
+        <p class="step-label">01 &nbsp; PLAN YOUR RIDE</p>
+        <div class="search-mode">
+          <label for="searchMode">Search for</label
+          ><select id="searchMode">
+            <option value="places">Places &amp; addresses</option>
+            <option value="addresses">Addresses only</option>
+          </select>
+        </div>
         <label
           >Starting point
           <input
@@ -46,14 +61,15 @@
           role="listbox"
           aria-label="Starting point suggestions"
         ></div>
-        <button id="useGps">Use current location</button>
+        <button id="useGps">Use current location</button
+        ><button id="pickOrigin" class="map-pick">Choose start on map</button>
         <label
           >Destination
           <input
             id="destinationSearch"
             type="search"
             autocomplete="off"
-            placeholder="Address or landmark"
+            placeholder="Street, café, park or address"
             aria-controls="destinationResults"
         /></label>
         <div
@@ -61,10 +77,18 @@
           role="listbox"
           aria-label="Destination suggestions"
         ></div>
-        <button id="generate">Find cycling routes</button>
+        <button id="pickDestination" class="map-pick">
+          Choose destination on map
+        </button>
+        <button class="primary" id="generate">Find cycling routes</button>
         <div id="routeChoices" aria-label="Cycling route choices"></div>
-        <button id="startNavigation" disabled>Start navigation</button>
-        <p>Infrastructure confidence is unknown unless verified.</p>
+        <button class="primary" id="startNavigation" disabled>
+          Start navigation
+        </button>
+        <p>
+          Cycling routes may include mixed traffic. Check the preview before you
+          ride.
+        </p>
       </section>
       <p id="journeyStatus" role="status" aria-live="polite">
         Enable Mapbox, then choose your starting point and destination.
@@ -100,6 +124,7 @@
     <script src="log.js"></script>
     <script src="routing.js"></script>
     <script src="map-view.js"></script>
+    <script src="config.js"></script>
     <script src="navigation.js"></script>
   </body>
 </html>
