@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 2,
+  "id": "synthetic-curve-and-turn",
+  "revision": "1",
+  "geometry": [[0,0],[0.00018,0.00002],[0.00036,0.00009],[0.00054,0.00018],[0.00072,0.00027],[0.0009,0.0003],[0.0009,0.00048],[0.0009,0.00066],[0.0009,0.00084],[0.0009,0.00102]],
+  "maneuvers": [
+    {"geometryIndex": 5, "cue": "turn", "rot": -90, "seg": "unknown", "instruction": "Turn left", "land": "Synthetic corner"},
+    {"geometryIndex": 9, "cue": "arrive", "seg": "unknown"}
+  ],
+  "source": {"provider": "synthetic-test-fixture", "profile": "cycling", "attribution": "Not a real road or a suggested cycling route"}
+}

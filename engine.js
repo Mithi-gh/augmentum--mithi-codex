@@ -17,7 +17,10 @@ const state = {
 };
 let ROUTE = [];
 let TOTAL_ROUTE_DIST = 0;
-let recordedRoute = null;   // raw {lat,lng,cue,seg,land,rot,distFromPrevious}[] as saved by record-route.html
+let routeModel = null;
+let routeMatcher = null;
+let latestMatch = null;
+let recordedRoute = null;   // normalized geometry as named coordinates for legacy helpers
 
 let watchId = null;
 let tracking = false;
@@ -34,6 +37,8 @@ let confTimer = null;
 let badFixStreak = 0;
 let offRouteBadStreak = 0;
 let offRouteGoodStreak = 0;
+let offRouteEvidenceMs = 0;
+let onRouteEvidenceMs = 0;
 const BAD_ACCURACY_M = 20;
 const STOP_SPEED_MPS = 0.5; // GPS jitter while genuinely stationary rarely computes above this
 const OFF_ROUTE_ENTER_M = 25;
@@ -66,10 +71,12 @@ function pointToSegmentDistance(px,py, ax,ay, bx,by){
   return Math.hypot(px-cx, py-cy);
 }
 function perpendicularDistanceToLeg(lat,lng){
-  const prev=recordedRoute[state.legIndex], next=recordedRoute[state.legIndex+1];
-  const b=toLocalXY(next.lat,next.lng, prev.lat,prev.lng);
-  const p=toLocalXY(lat,lng, prev.lat,prev.lng);
-  return pointToSegmentDistance(p.x,p.y, 0,0, b.x,b.y);
+  const current=ROUTE[state.legIndex];
+  if(!current) return 0;
+  const start=state.legIndex ? ROUTE[state.legIndex-1].distance : 0;
+  const end=!routeModel.legacy && ROUTE[state.legIndex+1] ? ROUTE[state.legIndex+1].distance : current.distance;
+  const candidates=RouteGeometry.candidates(routeModel,[lng,lat],start,end);
+  return candidates.length ? Math.min(...candidates.map(c=>c.distance)) : Infinity;
 }
 
 /* ============ CONDITION BAND (ported from the prototype, unchanged) ============ */
@@ -87,17 +94,30 @@ function computeBand(trueDist, prevBand){
 }
 
 /* ============ ROUTE LOADING ============
-   route[0] is just the start coordinate. route[i] for i>=1 is the maneuver point
-   ending the leg that started at route[i-1], so ROUTE[i-1] (leg array, 0-indexed
-   like the original prototype's ROUTE) = {cue, dist, rot, seg, land} of route[i]. */
+   Compile either legacy waypoints or version 2 full geometry. ROUTE remains the
+   renderer's maneuver/leg view; distance is cumulative metres at the maneuver. */
 function loadRoute(route){
-  route=normalizeRoute(route);
-  recordedRoute = route;
-  ROUTE = route.slice(1).map(wp => ({cue:wp.cue, dist:wp.distFromPrevious, rot:wp.rot||0, seg:wp.seg, land:wp.land||''}));
-  TOTAL_ROUTE_DIST = ROUTE.reduce((a,l)=>a+l.dist,0);
+  routeModel=RouteGeometry.compile(route);
+  routeMatcher=new RouteMatcher(routeModel); latestMatch=null;
+  recordedRoute=routeModel.geometry.map(([lng,lat])=>({lat,lng}));
+  ROUTE=routeModel.maneuvers;
+  TOTAL_ROUTE_DIST=routeModel.length;
 }
 function targetWaypoint(){
-  return recordedRoute[state.legIndex+1];
+  return recordedRoute[ROUTE[state.legIndex].geometryIndex];
+}
+function applyMapMatch(continuous){
+  const current=ROUTE[state.legIndex],next=ROUTE[state.legIndex+1];
+  const limit=current.distance+(next?Math.min(30,next.dist/2):0);
+  if(!continuous && routeMatcher.anchor) routeMatcher.interrupt();
+  latestMatch=routeMatcher.update({...state.lastFix,speed:state.lastSpeedMps,heading:state.lastHeading},{limit});
+  const previousStatus=state.matchStatus;
+  state.matchStatus=latestMatch.status; state.matchedPosition=latestMatch.coordinate;
+  state.progressAlongRoute=latestMatch.along; state.crossTrack=latestMatch.crossTrack;
+  state.matchUncertain=!routeModel.legacy && !latestMatch.usable;
+  if(previousStatus!==state.matchStatus) logEvent('match_status_changed',previousStatus+' -> '+state.matchStatus);
+  if(!state.routeStarted && routeMatcher.anchor){state.routeStarted=true;logEvent('route_started','Start coordinate acquired');}
+  if(!routeModel.legacy) state.trueDist=Math.max(0,current.distance-state.progressAlongRoute);
 }
 
 /* ============ CONFIDENCE METER (ported from fireConfidenceAuto, unchanged timing) ============ */
@@ -147,7 +167,7 @@ function advanceWaypoint(){
   state.confirmHold=false; waypointCandidateAt=null; previousProgressFix=null;
   const leg=ROUTE[state.legIndex];
   if(!leg){
-    state.finished=true; state.trueDist=0; state.cue='arrive';
+    state.finished=true; state.trueDist=0; state.cue='arrive'; state.progressAlongRoute=TOTAL_ROUTE_DIST;
     setCondition('confirm');
     logEvent('route_completed', 'All waypoints reached');
     stopTest();
@@ -155,7 +175,7 @@ function advanceWaypoint(){
   }
   state.cue=leg.cue; state.rot=leg.rot||0;
   const t=targetWaypoint();
-  state.trueDist = state.lastFix ? haversineMeters(state.lastFix.lat,state.lastFix.lng,t.lat,t.lng) : leg.dist;
+  state.trueDist = !routeModel.legacy ? Math.max(0,leg.distance-state.progressAlongRoute) : state.lastFix ? haversineMeters(state.lastFix.lat,state.lastFix.lng,t.lat,t.lng) : leg.dist;
   setCondition(leg.cue==='continue' ? 'normal' : computeBand(state.trueDist,'normal'));
   if(prevLeg && prevLeg.seg && leg.seg!==prevLeg.seg) fireConfidence(SEG_N[leg.seg]);
   state.currentSeg=leg.seg;
@@ -173,6 +193,15 @@ function waypointRadius(){
   return Math.min(WAYPOINT_RADIUS_M,ROUTE[state.legIndex].dist/3);
 }
 function confirmationPositionValid(){
+  if(!routeModel.legacy){
+    if(!latestMatch?.usable) return false;
+    const maneuver=ROUTE[state.legIndex];
+    if(state.legIndex===ROUTE.length-1){
+      const target=targetWaypoint();
+      return state.trueDist<=waypointRadius() && haversineMeters(state.lastFix.lat,state.lastFix.lng,target.lat,target.lng)<=waypointRadius();
+    }
+    return state.progressAlongRoute>=maneuver.distance && state.progressAlongRoute<=maneuver.distance+30;
+  }
   if(state.trueDist<=waypointRadius()) return true;
   const target=targetWaypoint(),next=recordedRoute[state.legIndex+2];
   if(!next) return false; // Final arrival cannot be inferred by passing the destination.
@@ -184,7 +213,27 @@ function cancelConfirmation(){
   clearTimeout(confirmTimer); state.confirmHold=false; waypointCandidateAt=null;
   if(!state.offRouteActive) setCondition('normal');
 }
+function advanceGeometryProgress(){
+  if(!state.routeStarted || !latestMatch?.usable) {waypointCandidateAt=null;return;}
+  const leg=ROUTE[state.legIndex],final=state.legIndex===ROUTE.length-1;
+  const remaining=leg.distance-state.progressAlongRoute;
+  const target=targetWaypoint();
+  const near=remaining>=-waypointRadius() && remaining<=waypointRadius();
+  if(final){
+    const rawDistance=haversineMeters(state.lastFix.lat,state.lastFix.lng,target.lat,target.lng);
+    if(!near || rawDistance>waypointRadius() || state.lastFix.accuracy>10){waypointCandidateAt=null;return;}
+    if(waypointCandidateAt===null)waypointCandidateAt=state.lastFix.t;
+    if(state.lastFix.t-waypointCandidateAt>=1000)enterConfirmHold();
+  }else if(leg.cue==='continue'){
+    if(remaining<=0)advanceWaypoint();
+  }else if(state.progressAlongRoute>=leg.distance+Math.min(3,ROUTE[state.legIndex+1].dist/3) &&
+           latestMatch.segmentIndex>=leg.geometryIndex){
+    enterConfirmHold();
+  }
+  if(!state.confirmHold && !state.finished)setCondition(leg.cue==='continue'?'normal':computeBand(state.trueDist,state.condition));
+}
 function advanceMotionProgress(){
+  if(!routeModel.legacy){advanceGeometryProgress();return;}
   const leg=ROUTE[state.legIndex], target=targetWaypoint(), fix=state.lastFix;
   const dist=haversineMeters(fix.lat,fix.lng,target.lat,target.lng);
   state.trueDist=dist;
@@ -218,41 +267,44 @@ function advanceMotionProgress(){
 
 /* ============ OFF-ROUTE DETECTION ============
    Three consecutive reliable fixes beyond 25m enter caution; three within 15m
-   clear it. Geometry is the current recorded straight leg, not a road network.
+   clear it. Version 2 uses the local reachable polyline and at least 2s of evidence;
+   legacy recordings retain their original waypoint corridor behavior.
    Stay on the off-route message until actual recovery; no reroute is fabricated. */
 function enterOffRoute(){
   cancelConfirmation(); previousProgressFix=null;
   state.offRouteActive=true; state.offRouteElapsed=0; state.recoveryGlyph='offroute';
   setCondition('caution');
-  offRouteBadStreak=0; offRouteGoodStreak=0;
+  offRouteBadStreak=0; offRouteGoodStreak=0; offRouteEvidenceMs=0; onRouteEvidenceMs=0;
   logEvent('off_route_entered', '');
-  if(state.legIndex>0 && ROUTE[state.legIndex-1].cue!=='continue') logEvent('turn_missed', 'Possible missed turn; left the outgoing corridor');
+  const current=ROUTE[state.legIndex];
+  if(current.cue!=='continue' && state.progressAlongRoute>=current.distance-25) logEvent('turn_missed','Possible missed maneuver; left the expected geometry corridor');
+  else if(state.legIndex>0 && ROUTE[state.legIndex-1].cue!=='continue') logEvent('turn_missed','Possible missed turn; left the outgoing corridor');
 }
 function exitOffRoute(){
   state.offRouteActive=false; state.offRouteElapsed=0;
-  offRouteBadStreak=0; offRouteGoodStreak=0;
+  offRouteBadStreak=0; offRouteGoodStreak=0; offRouteEvidenceMs=0; onRouteEvidenceMs=0;
   const leg=ROUTE[state.legIndex];
   setCondition((leg && leg.cue!=='continue') ? computeBand(state.trueDist,'normal') : 'normal');
   logEvent('off_route_cleared', '');
 }
 function checkOffRoute(lat,lng,dt){
-  if(state.finished || !ROUTE[state.legIndex]) return;
-  const dist=perpendicularDistanceToLeg(lat,lng);
+  if(state.finished || !ROUTE[state.legIndex] || (!routeModel.legacy && !state.routeStarted)) return;
+  const dist=routeModel.legacy ? perpendicularDistanceToLeg(lat,lng) : latestMatch.crossTrack??Infinity;
   if(state.offRouteActive){
     state.offRouteElapsed+=dt;
 
-    if(dist<=OFF_ROUTE_CLEAR_M){
-      offRouteGoodStreak+=1;
-      if(offRouteGoodStreak>=OFF_ROUTE_CONSECUTIVE_FIXES) exitOffRoute();
+    if(dist<=OFF_ROUTE_CLEAR_M && (routeModel.legacy || latestMatch.usable)){
+      offRouteGoodStreak+=1; onRouteEvidenceMs+=dt;
+      if(offRouteGoodStreak>=OFF_ROUTE_CONSECUTIVE_FIXES && (routeModel.legacy || onRouteEvidenceMs>=2000)) exitOffRoute();
     } else {
-      offRouteGoodStreak=0;
+      offRouteGoodStreak=0; onRouteEvidenceMs=0;
     }
   } else {
-    if(dist>OFF_ROUTE_ENTER_M){
-      offRouteBadStreak+=1;
-      if(offRouteBadStreak>=OFF_ROUTE_CONSECUTIVE_FIXES) enterOffRoute();
+    if(dist-(routeModel.legacy?0:Math.min(state.lastFix.accuracy,10))>OFF_ROUTE_ENTER_M){
+      offRouteBadStreak+=1; offRouteEvidenceMs+=dt;
+      if(offRouteBadStreak>=OFF_ROUTE_CONSECUTIVE_FIXES && (routeModel.legacy || offRouteEvidenceMs>=2000)) enterOffRoute();
     } else {
-      offRouteBadStreak=0;
+      offRouteBadStreak=0; offRouteEvidenceMs=0;
     }
   }
 }
@@ -260,8 +312,9 @@ function checkOffRoute(lat,lng,dt){
 /* ============ GEOLOCATION ============ */
 function resetContinuity(){
   continuityBroken=true;
+  if(routeMatcher)routeMatcher.interrupt();
   state.stopDwell=0; state.moveDwell=0;
-  offRouteBadStreak=0; offRouteGoodStreak=0;
+  offRouteBadStreak=0; offRouteGoodStreak=0; offRouteEvidenceMs=0; onRouteEvidenceMs=0;
   previousProgressFix=null; waypointCandidateAt=null;
   if(state.confirmHold) cancelConfirmation();
 }
@@ -295,20 +348,22 @@ function onFix(pos){
   if(previous && distance>MAX_SPEED_MPS*gap/1000+previous.accuracy+c.accuracy){
     flagWeakSignal('Implausible GPS jump rejected'); return;
   }
-  if(!continuous) resetContinuity();
+  if(!continuous && previous) resetContinuity();
   let speedMps=Number.isFinite(c.speed) && c.speed>=0 && c.speed<=MAX_SPEED_MPS ? c.speed : null;
   if(speedMps===null && continuous){
     speedMps=distance<=Math.max(previous.accuracy,c.accuracy) ? 0 : distance/(gap/1000);
   }
   state.lastFix={lat:c.latitude,lng:c.longitude,t:now,accuracy:c.accuracy};
   state.lastSpeedMps=speedMps;
+  state.lastHeading=Number.isFinite(c.heading)?c.heading:null;
   continuityBroken=false;
   badFixStreak=0;
   if(state.gpsWeak){ state.gpsWeak=false; logEvent('gps_recovered','Reliable GPS resumed'); }
   armSignalTimeout();
+  applyMapMatch(continuous);
   if(continuous && speedMps!==null) updateDwell(speedMps,gap);
   if(continuous) checkOffRoute(c.latitude,c.longitude,gap);
-  if(state.routeStarted){
+  if(state.routeStarted && routeModel.legacy){
     const target=targetWaypoint();
     if(target) state.trueDist=haversineMeters(c.latitude,c.longitude,target.lat,target.lng);
   }
@@ -324,11 +379,11 @@ function onFixError(err){
 }
 
 /* ============ RENDER DISPATCH ============
-   Calls the unmodified renderMotion()/renderStationary() from render.js. */
+   Keep the existing motion/stationary layout and surface GPS/matching uncertainty. */
 let onEngineUpdate = null;
 function setEngineUpdateHandler(fn){ onEngineUpdate=fn; }
 function render(){
-  if(state.context==='motion' && state.gpsWeak) renderMotionOverlay();
+  if(state.context==='motion' && (state.gpsWeak || state.matchUncertain)) renderMotionOverlay();
   else if(state.context==='motion') renderMotion();
   else renderStationary();
   if(onEngineUpdate) onEngineUpdate(state);
@@ -347,10 +402,12 @@ function startTest(route){
     confidenceFiring:false, confidenceVal:5, recoveryGlyph:'offroute',
     situation:'normal', drivingFromRoute:true, actionInverted:false, meterInverted:false, showFullMap:false,
     legIndex:0, distSoFar:0, stopDwell:0, moveDwell:0, confirmHold:false, finished:false,
-    gpsWeak:false, lastFix:null, lastSpeedMps:null, routeStarted:false,
+    gpsWeak:false, lastFix:null, lastSpeedMps:null, lastHeading:null, routeStarted:false,
+    progressAlongRoute:0, matchedPosition:null, crossTrack:null, matchStatus:'waiting',
+    geometryAware:!routeModel.legacy, matchUncertain:false,
     offRouteActive:false, offRouteElapsed:0
   });
-  badFixStreak=0; offRouteBadStreak=0; offRouteGoodStreak=0;
+  badFixStreak=0; offRouteBadStreak=0; offRouteGoodStreak=0; offRouteEvidenceMs=0; onRouteEvidenceMs=0;
   render();
   armSignalTimeout();
   watchId=navigator.geolocation.watchPosition(

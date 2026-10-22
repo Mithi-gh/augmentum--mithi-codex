@@ -47,7 +47,9 @@ Browser checks run complete recorder and harness workflows at desktop and mobile
 viewport sizes using a simulated sensor boundary. They cover route recording,
 JSON download/import, stationary/motion transitions, arrival, device cleanup, log
 export, stale preflight and escaped user content. No hardware GPS is required.
-CI runs these checks without deployment.
+A separate desktop regression deliberately delays fullscreen exit to verify that
+cleanup checks await browser completion. Browser failures include the scenario
+name and browser/runtime versions. CI runs these checks without deployment.
 
 ## Use a phone on the same LAN
 
@@ -79,5 +81,33 @@ If GPS stays red, check trusted HTTPS, site and OS location permissions, browser
 foreground state, and outdoor accuracy. Mobile browser wake lock, fullscreen,
 orientation and file sharing vary by browser. Keep the tab visible for research
 sessions; a successful desktop simulation does not prove mobile reliability.
+
+## Full geometry routes (Phase 2)
+
+The harness imports both original waypoint arrays and version 2 polyline JSON.
+Version 2 separates dense route coordinates from maneuver indices, uses actual
+along-route distance, and requires outgoing evidence at turns. Existing recorded
+arrays still work in compatibility mode; adding a format wrapper cannot recover
+curves that were never recorded. The recorder continues to export the original
+format.
+
+Use **Import route JSON** in `test-engine.html` to select a version 2 file. See
+[the schema and matching architecture](docs/architecture.md) and
+[synthetic example](examples/geometry-route.json). The example is near the equator
+and is a test artifact, not a real cycling route. To exercise navigation without
+riding, run the automated simulated GPS suites; importing an example does not
+simulate live GPS by itself.
+
+The debug panel now shows matching status and cumulative progress. “Position
+uncertain” pauses geometry guidance; 20m/50m accuracy readings freeze progress.
+After interrupted GPS, three reliable local fixes are needed to resume. There is
+no global snap after long outages, real map, provider connection or automatic
+reroute. Research exports add route identity, revision and matched progress while
+preserving the original fields.
+
+The browser suite covers both legacy and geometry formats at desktop/mobile sizes;
+the script suite includes curves, crossings, parallel paths, loops, U-turns,
+stationary jitter, walking/cycling speeds, 5m/10m/20m/50m accuracy, signal recovery
+and premature-arrival protection.
 
 See [navigation audit](docs/navigation-audit.md) and [prioritized roadmap](docs/roadmap.md).

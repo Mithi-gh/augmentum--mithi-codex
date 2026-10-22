@@ -87,6 +87,8 @@
 <script src="glyphs.js"></script>
 <script src="render.js"></script>
 <script src="route.js"></script>
+<script src="geometry.js"></script>
+<script src="map-matcher.js"></script>
 <script src="engine.js"></script>
 <script src="preflight.js"></script>
 <script src="log.js"></script>
@@ -189,6 +191,7 @@ setEngineUpdateHandler(s=>{
     `trueDist: ${s.trueDist!=null?Math.round(s.trueDist):'—'} m\ndistSoFar: ${Math.round(s.distSoFar)} m / ${Math.round(TOTAL_ROUTE_DIST)} m\n`+
     `speed: ${s.lastSpeedMps!=null?s.lastSpeedMps.toFixed(2):'—'} m/s\nstopDwell: ${s.stopDwell} ms   moveDwell: ${s.moveDwell} ms\n`+
     `finished: ${s.finished}\n`+
+    `match: ${s.matchStatus} · progress: ${Math.round(s.progressAlongRoute)} / ${Math.round(TOTAL_ROUTE_DIST)} m\n`+
     (!s.routeStarted ? 'Waiting near the recorded start coordinate\n' : '')+
     (s.gpsWeak ? `<span class="gpsWeak">GPS WEAK — waiting for reliable signal</span>` : 'gps: ok')+
     `\nlog records: ${typeof logRecords!=='undefined'?logRecords.length:0}`+
