@@ -11,8 +11,8 @@
   <body>
     <main class="journey">
       <header class="planner-header">
-        <a class="brand" href="navigate.html">augmentum<span>↗</span></a
-        ><span class="prototype-badge">TEST RIDE</span>
+        <a class="brand" href="index.html">augmentum<span>↗</span></a
+        ><span class="prototype-badge">CYCLING · BETA</span>
       </header>
       <div class="planner-intro">
         <p class="eyebrow">YOUR NEXT RIDE</p>
@@ -20,7 +20,7 @@
         <p>Find a place. Choose your route. Enjoy the ride.</p>
       </div>
       <section id="planner" class="planner">
-        <details id="connectionSettings">
+        <details id="connectionSettings" hidden>
           <summary>Developer connection settings</summary>
           <label
             >Restricted public token
@@ -69,7 +69,7 @@
             id="destinationSearch"
             type="search"
             autocomplete="off"
-            placeholder="Street, café, park or address"
+            placeholder="Street, address or town"
             aria-controls="destinationResults"
         /></label>
         <div
@@ -91,9 +91,10 @@
         </p>
       </section>
       <p id="journeyStatus" role="status" aria-live="polite">
-        Enable Mapbox, then choose your starting point and destination.
+        Choose your starting point and destination.
       </p>
       <p id="locationStatus" role="status"></p>
+      <p class="privacy-note">Searches and route locations are shared with Mapbox. Location access starts only when you choose it.</p>
       <div id="previewMap" aria-label="Route preview map"></div>
       <section id="ride" hidden>
         <div class="phone" id="phone">

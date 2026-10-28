@@ -6,7 +6,7 @@ need a Mapbox account, token, or developer settings. No backend is required.
 ## Owner setup (once)
 
 1. In Mapbox, create a **public `pk.` browser token** for this prototype. Restrict
-   allowed URLs to your GitHub Pages site (`https://mithi-gh.github.io/*`), plus
+   allowed URLs to your GitHub Pages site (`https://mithi-gh.github.io`), plus
    localhost only if needed. Confirm the allowed URL format in Mapbox's dashboard.
    Keep usage limits/alerts appropriate for a shared prototype.
 2. In GitHub repository **Settings → Secrets and variables → Actions → Variables**,
@@ -21,7 +21,7 @@ The token is intentionally visible in the generated public `config.js` and brows
 network requests. A GitHub secret would not make a browser token confidential.
 URL restrictions and account limits protect usage; there is no backend quota or
 access control. Rotate the token in the repository variable and redeploy if needed.
-The workflow stays manual; this change does not publish the site automatically.
+The workflow stays manual and runs all test suites before publishing. It accepts either a repository variable or secret named MAPBOX_PUBLIC_TOKEN (the variable takes precedence). This change does not publish the site automatically.
 
 ## Local development
 
@@ -77,3 +77,16 @@ Run `npm test`, `npm run test:browser`, `npm run test:journey` and
 `CHROMIUM_PATH` to an installed Chromium binary. Tests cover manual and configured
 onboarding, refresh without token entry, nearby place selection, address searches,
 provider errors and the approved navigation reference screens.
+
+## Welcome screen
+
+The home page introduces the ride with a responsive illustrated route and a single
+Let’s ride link. Research tools are tucked into the footer. The planner shares its
+palette while the approved in-ride display remains unchanged. The illustration is
+explicitly labelled; it is not a live route or a preview of provider coverage.
+
+Hosted visitors never see token-entry fields. Without configured access, the
+planner displays an unavailable message and disables route-planning controls.
+Localhost development retains the optional per-tab connection panel. The release
+build still refuses to publish without a public token, so missing configuration
+cannot overwrite a working live deployment.

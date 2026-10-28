@@ -342,3 +342,19 @@
 .search-mode[hidden] {
   display: none;
 }
+
+/* Welcome-page palette, confined to the planning controls. */
+body:has(.journey){background:#0b1111}
+.journey{max-width:760px;padding:28px 24px 0}
+.planner-header{padding-bottom:24px;border-bottom:1px solid #ffffff1a;margin-bottom:36px}
+.brand span,.planner-intro .eyebrow{color:#e3ff88}
+.planner-intro h1{font-size:clamp(32px,6vw,48px);letter-spacing:-2px}
+.planner{background:#111c19;border-color:#ffffff16;border-radius:22px;padding:26px}
+.journey .primary{background:#e3ff88;border-radius:100px;color:#122019}
+.planner input:not([type="checkbox"]){background:#0b1411;border-color:#ffffff24}
+.planner input:focus-visible{outline-color:#e3ff88}
+.journey #useGps{color:#e3ff88}
+.journey .privacy-note{font-size:11px;color:#9ba99f;margin:0 0 16px}
+.journey:has(#ride:not([hidden])) .planner-intro,.journey:has(#ride:not([hidden])) .privacy-note{display:none}
+@media(min-width:1000px){.journey:not(:has(#ride:not([hidden]))){max-width:1160px;display:grid;grid-template-columns:460px 1fr;column-gap:40px}.planner-header,.planner-intro{grid-column:1/-1}.planner{grid-column:1;grid-row:3/7}#previewMap{grid-column:2;grid-row:3;height:400px}#journeyStatus,#locationStatus,.journey .privacy-note,#recenter{grid-column:2}.journey>p:last-child,.journey>#exportLog{grid-column:1/-1}}
+@media(max-width:420px){.journey{padding:20px 16px 0}.planner{padding:20px}.planner-intro h1{letter-spacing:-1.2px}}

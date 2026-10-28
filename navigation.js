@@ -15,6 +15,8 @@ let attemptedReroute = false,
   searchEpoch = 0;
 const searches = new Map();
 const publicConfig = window.AUGMENTUM_CONFIG || {};
+const localDevelopment = ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
+element("connectionSettings").hidden = !localDevelopment;
 const searchSessions = new Map();
 const locationMarkers = new Map();
 let locationGeneration = 0;
@@ -39,6 +41,10 @@ if (publicConfig.mapboxPublicToken) {
   } catch (e) {
     status(e.message);
   }
+}
+if (!publicConfig.mapboxPublicToken && !localDevelopment) {
+  status("Route planning is being connected. Please try again shortly.");
+  for (const id of ["originSearch", "destinationSearch", "useGps", "generate", "pickOrigin", "pickDestination"]) element(id).disabled = true;
 }
 function status(message) {
   element("journeyStatus").textContent = message;
