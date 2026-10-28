@@ -27,6 +27,11 @@ jobs:
           cache: npm
 
       - run: npm ci
+      - run: npm test
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:browser
+      - run: npm run test:journey
+      - run: npm run test:visual
 
       - name: Prepare staging website
         shell: bash
@@ -38,6 +43,12 @@ jobs:
           cp -R node_modules/leaflet/dist _site/node_modules/leaflet/
           cp node_modules/leaflet/LICENSE _site/node_modules/leaflet/
           touch _site/.nojekyll
+
+      - name: Configure tester access
+        env:
+          MAPBOX_PUBLIC_TOKEN: ${{ vars.MAPBOX_PUBLIC_TOKEN || secrets.MAPBOX_PUBLIC_TOKEN }}
+          MAPBOX_SEARCH_BOX: ${{ vars.MAPBOX_SEARCH_BOX }}
+        run: node tools/configure-staging.cjs _site
 
       - uses: actions/configure-pages@v5
 

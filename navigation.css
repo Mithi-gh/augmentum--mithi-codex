@@ -140,4 +140,221 @@
   transform-origin: center 20px;
 }
 
-.journey > p a { color: var(--accent); }
+.journey > p a {
+  color: var(--accent);
+}
+
+/* Planning shell: separate from the approved in-ride interface. */
+.journey {
+  max-width: 620px;
+  padding-top: 28px;
+}
+.planner-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 38px;
+}
+.brand {
+  color: #fff;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 23px;
+  letter-spacing: -0.05em;
+}
+.brand span {
+  color: var(--yellow);
+  margin-left: 5px;
+}
+.prototype-badge {
+  font-size: 10px;
+  letter-spacing: 0.13em;
+  color: var(--t2);
+  border: 1px solid var(--hair);
+  padding: 5px 9px;
+  border-radius: 20px;
+}
+.planner-intro {
+  margin-bottom: 26px;
+}
+.planner-intro .eyebrow {
+  font-size: 10px;
+  color: var(--yellow);
+  margin-bottom: 8px;
+}
+.planner-intro h1 {
+  font-size: clamp(28px, 6vw, 36px);
+  font-weight: 500;
+  letter-spacing: -0.04em;
+  line-height: 1.2;
+}
+.planner-intro > p:last-child {
+  margin-top: 10px;
+  color: var(--t3);
+}
+.planner {
+  background: linear-gradient(145deg, #171b1f, #101214);
+  border-radius: 22px;
+  padding: 22px;
+}
+.planner .step-label {
+  color: var(--t3);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  margin-bottom: 20px;
+}
+.planner label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--t2);
+}
+.planner input:not([type="checkbox"]) {
+  display: block;
+  margin-top: 8px;
+  padding: 16px;
+  background: #090c0f;
+  font-size: 16px;
+  border-radius: 12px;
+}
+.planner input::placeholder {
+  color: #8b929a;
+}
+.journey .primary {
+  width: 100%;
+  background: var(--yellow);
+  color: #111;
+  font-weight: 600;
+  border: 0;
+  border-radius: 12px;
+  margin: 18px 0 0;
+  padding: 15px;
+}
+.journey #startNavigation:disabled {
+  display: none;
+}
+.journey #useGps {
+  background: transparent;
+  color: var(--accent);
+  font-size: 13px;
+  border: 0;
+  padding-left: 0;
+  margin-top: 0;
+}
+.journey #useGps::before {
+  content: "⌖";
+  font-size: 20px;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+.planner > p:last-child {
+  margin: 14px 0 0;
+  font-size: 11px;
+  color: var(--t3);
+}
+.planner details {
+  border-bottom: 1px solid var(--hair);
+  padding-bottom: 16px;
+  margin-bottom: 20px;
+  font-size: 12px;
+}
+.planner details[hidden] {
+  display: none;
+}
+.journey [role="option"] {
+  background: #1a2026;
+  border-color: transparent;
+  font-size: 14px;
+  margin: 3px 0;
+  padding: 14px;
+}
+.journey [role="option"]:hover,
+.journey [role="option"]:focus-visible {
+  background: #26323d;
+}
+.journey .route-choice {
+  display: block;
+  width: 100%;
+  text-align: left;
+  margin: 10px 0 0;
+  padding: 18px 14px;
+  background: #101418;
+}
+#routeChoices button[aria-pressed="true"] {
+  background: #192b3b;
+  border-color: var(--accent);
+  color: white;
+}
+#journeyStatus {
+  padding: 12px 0;
+  min-height: 48px;
+  font-size: 13px;
+}
+#locationStatus:empty,
+#eta:empty {
+  display: none;
+}
+#previewMap {
+  border: 1px solid var(--hair);
+  border-radius: 20px;
+  height: 300px;
+}
+.journey > #exportLog,
+.journey > #recenter {
+  font-size: 12px;
+  background: transparent;
+  margin-top: 12px;
+}
+.journey > p:last-child {
+  font-size: 11px;
+}
+.search-mode {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  color: var(--t3);
+  font-size: 12px;
+  margin-bottom: 12px;
+}
+.search-mode select {
+  background: #101214;
+  color: white;
+  border: 1px solid var(--hair);
+  border-radius: 8px;
+  padding: 8px;
+  font: inherit;
+}
+@media (max-width: 420px) {
+  .planner {
+    padding: 18px;
+  }
+  .planner-header {
+    margin-bottom: 28px;
+  }
+}
+
+.journey .map-pick {
+  background: transparent;
+  color: var(--t2);
+  font-size: 12px;
+  border: 0;
+  padding-left: 0;
+}
+.search-mode[hidden] {
+  display: none;
+}
+
+/* Welcome-page palette, confined to the planning controls. */
+body:has(.journey){background:#0b1111}
+.journey{max-width:760px;padding:28px 24px 0}
+.planner-header{padding-bottom:24px;border-bottom:1px solid #ffffff1a;margin-bottom:36px}
+.brand span,.planner-intro .eyebrow{color:#e3ff88}
+.planner-intro h1{font-size:clamp(32px,6vw,48px);letter-spacing:-2px}
+.planner{background:#111c19;border-color:#ffffff16;border-radius:22px;padding:26px}
+.journey .primary{background:#e3ff88;border-radius:100px;color:#122019}
+.planner input:not([type="checkbox"]){background:#0b1411;border-color:#ffffff24}
+.planner input:focus-visible{outline-color:#e3ff88}
+.journey #useGps{color:#e3ff88}
+.journey .privacy-note{font-size:11px;color:#9ba99f;margin:0 0 16px}
+.journey:has(#ride:not([hidden])) .planner-intro,.journey:has(#ride:not([hidden])) .privacy-note{display:none}
+@media(min-width:1000px){.journey:not(:has(#ride:not([hidden]))){max-width:1160px;display:grid;grid-template-columns:460px 1fr;column-gap:40px}.planner-header,.planner-intro{grid-column:1/-1}.planner{grid-column:1;grid-row:3/7}#previewMap{grid-column:2;grid-row:3;height:400px}#journeyStatus,#locationStatus,.journey .privacy-note,#recenter{grid-column:2}.journey>p:last-child,.journey>#exportLog{grid-column:1/-1}}
+@media(max-width:420px){.journey{padding:20px 16px 0}.planner{padding:20px}.planner-intro h1{letter-spacing:-1.2px}}

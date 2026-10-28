@@ -93,6 +93,39 @@ const response = (origin = [0, 0], destination = [0.001, 0.001]) => ({
               ],
             },
           });
+        if (url.pathname.endsWith("/suggest")) {
+          assert.ok(url.searchParams.get("session_token"));
+          if (url.searchParams.get("q") === "park")
+            assert.equal(url.searchParams.get("proximity"), "0,0");
+          return route.fulfill({
+            json: {
+              suggestions: [
+                {
+                  mapbox_id: url.searchParams.get("q"),
+                  name:
+                    url.searchParams.get("q") === "start"
+                      ? "Starting place"
+                      : "Destination place",
+                  place_formatted: "Local town",
+                },
+              ],
+            },
+          });
+        }
+        if (url.pathname.includes("/retrieve/"))
+          return route.fulfill({
+            json: {
+              features: [
+                {
+                  geometry: {
+                    coordinates: url.pathname.endsWith("start")
+                      ? [0, 0]
+                      : [0.001, 0.001],
+                  },
+                },
+              ],
+            },
+          });
         directions++;
         if (failRoute)
           return route.fulfill({
@@ -149,7 +182,7 @@ const response = (origin = [0, 0], destination = [0.001, 0.001]) => ({
       await page.locator("#connect").click();
       assert.match(
         await page.locator("#journeyStatus").textContent(),
-        /Mapbox enabled/,
+        /Ready to ride/,
       );
       for (const [kind, query, label] of [
         ["origin", "start", "Starting place"],
@@ -299,6 +332,72 @@ const response = (origin = [0, 0], destination = [0.001, 0.001]) => ({
         );
       console.log(
         `PASS journey ${mobile ? "mobile" : "desktop"}: search, routes, retained map, GPS, pause/resume, failed and accepted reroute, network status, end`,
+      );
+      const hosted = await context.newPage();
+      await hosted.route("**/config.js", (route) =>
+        route.fulfill({
+          contentType: "application/javascript",
+          body: 'window.AUGMENTUM_CONFIG={mapboxPublicToken:"pk.fixture",searchBox:true};',
+        }),
+      );
+      await hosted.goto(`http://127.0.0.1:${port}/navigate.html`);
+      assert.equal(
+        await hosted.locator("#connectionSettings").isVisible(),
+        false,
+      );
+      assert.match(
+        await hosted.locator("#journeyStatus").textContent(),
+        /Ready to ride/,
+      );
+      for (const [kind, query, label] of [
+        ["origin", "start", "Starting place"],
+        ["destination", "park", "Destination place"],
+      ]) {
+        await hosted.locator(`#${kind}Search`).fill(query);
+        await hosted.getByRole("option", { name: new RegExp(label) }).click();
+      }
+      await hosted.locator("#generate").click();
+      await hosted.waitForFunction(
+        () => !document.querySelector("#startNavigation").disabled,
+      );
+      await hosted.locator("#pickDestination").click();
+      await hosted.evaluate(() =>
+        journeyMap.map.fire("click", { latlng: { lat: 0.002, lng: 0.002 } }),
+      );
+      assert.match(
+        await hosted.locator("#destinationSearch").inputValue(),
+        /Map pin/,
+      );
+      assert.equal(await hosted.locator("#startNavigation").isVisible(), false);
+      await hosted.screenshot({
+        path: `/tmp/augmentum-planner-${mobile ? "mobile" : "desktop"}.png`,
+        fullPage: true,
+      });
+      await hosted.route("**/config.js", (route) =>
+        route.fulfill({
+          contentType: "application/javascript",
+          body: 'window.AUGMENTUM_CONFIG={mapboxPublicToken:"pk.fixture",searchBox:false,searchProximity:[73.8567,18.5204]};',
+        }),
+      );
+      await hosted.reload();
+      assert.equal(await hosted.locator("#searchMode").isVisible(), false);
+      // Leaflet rounds projected coordinates to screen pixels at zoom 12.
+      assert.ok(
+        Math.abs(
+          (await hosted.evaluate(() => journeyMap.map.getCenter().lng)) -
+            73.8567,
+        ) < 0.001,
+      );
+      assert.equal(
+        await hosted.locator("#connectionSettings").isVisible(),
+        false,
+      );
+      assert.match(
+        await hosted.locator("#journeyStatus").textContent(),
+        /Ready to ride/,
+      );
+      console.log(
+        "PASS hosted onboarding: configured access survives reload; local POI suggestion/retrieve and proximity bias",
       );
       await context.close();
     }

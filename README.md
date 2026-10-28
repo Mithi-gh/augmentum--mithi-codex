@@ -152,3 +152,10 @@ supplies credible bearing. This build does not promise background location or
 restore an active ride after closing the tab. Download important research logs.
 
 See [navigation audit](docs/navigation-audit.md) and [prioritized roadmap](docs/roadmap.md).
+
+## Share staging without token entry
+
+Configure the `MAPBOX_PUBLIC_TOKEN` GitHub **repository variable** once, then run
+our manual staging deployment. Testers open the site directly; no token entry is
+needed. See [tester setup](docs/tester-setup.md) for exact owner steps, URL
+restrictions, local setup and local-address search guidance.

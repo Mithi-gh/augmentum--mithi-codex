@@ -47,7 +47,8 @@ let activeScenario='server startup';
  page.on('response',r=>{if(r.status()>=400&&!r.url().endsWith('favicon.ico'))failed.push(r.url())});
  await page.clock.install();
  await page.goto(`http://127.0.0.1:${port}/`);assert.equal(await page.title(),'Augmentum');
- await page.getByRole('link',{name:/Record route/}).click();
+ await page.getByText('Research tools',{exact:true}).click();
+ await page.getByRole('link',{name:'Record a route',exact:true}).click();
  await page.waitForFunction(()=>document.querySelector('#accNum').textContent==='3');
  for(const x of [0,100]){
    await page.evaluate(x=>window.emitGps(x),x);await page.locator('#dropBtn').click();

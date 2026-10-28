@@ -174,3 +174,14 @@ passed, and all ten approved reference comparisons showed 0% changed pixels.
 Hosted CI and the Playwright-downloaded Chromium build have not been verified;
 this environment blocks that browser download. Tests use mocked provider data,
 not a live Mapbox account.
+
+## Tester onboarding revision
+
+`config.js` supplies optional public browser configuration before `navigation.js`.
+The manual Pages workflow generates it in the staging artifact from
+`vars.MAPBOX_PUBLIC_TOKEN`; no credentials are committed. `routing.js` adds
+independent Search Box suggest/retrieve methods, preserving geocoding and cycling
+routing. `navigation.js` owns transient search sessions, cancellation, selection,
+nearby bias and keyboard interaction. `navigation.css` refines only the consumer
+planning shell. The engine, approved rendering, and logging modules are unchanged.
+See [tester setup](tester-setup.md) for operational instructions and limitations.

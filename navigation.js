@@ -14,6 +14,38 @@ let attemptedReroute = false,
   lastRerouteAt = -Infinity,
   searchEpoch = 0;
 const searches = new Map();
+const publicConfig = window.AUGMENTUM_CONFIG || {};
+const localDevelopment = ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
+element("connectionSettings").hidden = !localDevelopment;
+const searchSessions = new Map();
+const locationMarkers = new Map();
+let locationGeneration = 0;
+function connectProvider(token) {
+  const next = new MapboxRoutes.Client(token);
+  cancelSearches();
+  invalidatePlan();
+  client = next;
+  routing = new RoutingController(client);
+  journeyMap.enable(token);
+  element("mapToken").value = "";
+  status("Ready to ride. Choose your starting point and destination.");
+}
+if (publicConfig.mapboxPublicToken) {
+  try {
+    connectProvider(publicConfig.mapboxPublicToken);
+    element("connectionSettings").hidden = true;
+    if (publicConfig.searchProximity && journeyMap.map) {
+      const center = MapboxRoutes.point(publicConfig.searchProximity);
+      journeyMap.map.setView([center[1], center[0]], 12);
+    }
+  } catch (e) {
+    status(e.message);
+  }
+}
+if (!publicConfig.mapboxPublicToken && !localDevelopment) {
+  status("Route planning is being connected. Please try again shortly.");
+  for (const id of ["originSearch", "destinationSearch", "useGps", "generate", "pickOrigin", "pickDestination"]) element(id).disabled = true;
+}
 function status(message) {
   element("journeyStatus").textContent = message;
 }
@@ -32,6 +64,14 @@ function cancelSearches() {
   searches.clear();
 }
 function selectLocation(kind, result) {
+  const pending = searches.get(kind);
+  if (pending) {
+    clearTimeout(pending.timer);
+    pending.abort.abort();
+  }
+  searchSessions.delete(kind);
+  element(kind + "Search").setAttribute("aria-expanded", "false");
+  if (kind === "origin") locationGeneration++;
   invalidatePlan();
   if (kind === "origin") origin = result.coordinate;
   else destination = result.coordinate;
@@ -39,12 +79,17 @@ function selectLocation(kind, result) {
   element(kind + "Results").replaceChildren();
   if (journeyMap.map) {
     journeyMap.map.setView([result.coordinate[1], result.coordinate[0]], 14);
-    L.circleMarker([result.coordinate[1], result.coordinate[0]], {
-      color: "#FFF86A",
-      radius: 7,
-    })
+    locationMarkers.get(kind)?.remove();
+    const marker = L.circleMarker(
+      [result.coordinate[1], result.coordinate[0]],
+      {
+        color: "#FFF86A",
+        radius: 7,
+      },
+    )
       .bindTooltip(kind === "origin" ? "Start" : "Destination")
       .addTo(journeyMap.markers);
+    locationMarkers.set(kind, marker);
   }
 }
 element("connect").onclick = () => {
@@ -52,22 +97,17 @@ element("connect").onclick = () => {
     if (!element("onlineConsent").checked)
       throw Error("Authorize online requests before enabling Mapbox");
     const token = element("mapToken").value.trim();
-    const next = new MapboxRoutes.Client(token);
-    cancelSearches();
-    invalidatePlan();
-    client = next;
-    routing = new RoutingController(client);
-    journeyMap.enable(token);
-    element("mapToken").value = "";
-    status("Mapbox enabled. Choose a starting point and destination.");
+    connectProvider(token);
   } catch (e) {
     status(e.message);
   }
 };
 for (const kind of ["origin", "destination"])
   element(kind + "Search").addEventListener("input", () => {
-    if (kind === "origin") origin = null;
-    else destination = null;
+    if (kind === "origin") {
+      origin = null;
+      locationGeneration++;
+    } else destination = null;
     invalidatePlan();
     element(kind + "Results").replaceChildren();
     const prior = searches.get(kind);
@@ -84,7 +124,32 @@ for (const kind of ["origin", "destination"])
           status("Enable Mapbox to search");
           return;
         }
-        const results = await client.search(query, abort.signal);
+        if (query.trim().length < 3) return;
+        status("Searching nearby places…");
+        let sessionToken;
+        if (
+          publicConfig.searchBox &&
+          element("searchMode").value === "places"
+        ) {
+          if (!searchSessions.has(kind))
+            searchSessions.set(kind, crypto.randomUUID());
+          sessionToken = searchSessions.get(kind);
+        }
+        let results = await client.search(query, abort.signal, {
+          proximity:
+            origin || destination || publicConfig.searchProximity || undefined,
+          language: (navigator.language || "en").split("-")[0],
+          sessionToken,
+        });
+        if (!results.length && sessionToken && !abort.signal.aborted) {
+          results = await client.search(query, abort.signal, {
+            proximity:
+              origin ||
+              destination ||
+              publicConfig.searchProximity ||
+              undefined,
+          });
+        }
         if (abort.signal.aborted || epoch !== searchEpoch) return;
         const host = element(kind + "Results");
         host.replaceChildren();
@@ -93,13 +158,39 @@ for (const kind of ["origin", "destination"])
           button.type = "button";
           button.setAttribute("role", "option");
           button.textContent = result.label;
-          button.onclick = () => selectLocation(kind, result);
+          button.onclick = async () => {
+            try {
+              status("Finding this place…");
+              const resolved = await client.retrieve(result, abort.signal);
+              if (abort.signal.aborted || epoch !== searchEpoch) return;
+              selectLocation(kind, resolved);
+              status(
+                kind === "origin"
+                  ? "Starting point set. Choose a destination."
+                  : "Destination set. Find your cycling route.",
+              );
+            } catch (e) {
+              if (!abort.signal.aborted) status(e.message);
+            }
+          };
           host.append(button);
         }
-        if (!results.length && query.length >= 3)
-          status("No matching places found");
+        element(kind + "Search").setAttribute(
+          "aria-expanded",
+          String(results.length > 0),
+        );
+        status(
+          results.length
+            ? "Choose a matching place. Add a town or postcode to narrow your search."
+            : "No matches. Try a street number, town or postcode; some local places may be missing.",
+        );
       } catch (e) {
-        if (e.name !== "AbortError") status(e.message);
+        if (
+          !abort.signal.aborted &&
+          epoch === searchEpoch &&
+          e.name !== "AbortError"
+        )
+          status(e.message);
       }
     }, 350);
     searches.set(kind, { timer, abort });
@@ -109,9 +200,11 @@ element("useGps").onclick = () => {
     status("Location unavailable. Search for a starting point.");
     return;
   }
+  const generation = ++locationGeneration;
   status("Requesting current location…");
   navigator.geolocation.getCurrentPosition(
     (pos) => {
+      if (generation !== locationGeneration) return;
       if (
         !validCoordinate(pos.coords.latitude, pos.coords.longitude) ||
         pos.coords.accuracy >= 20 ||
@@ -147,7 +240,8 @@ element("generate").onclick = async () => {
     host.replaceChildren();
     choices.forEach((choice, index) => {
       const button = document.createElement("button");
-      button.textContent = `Route ${index + 1}: ${(choice.distance / 1000).toFixed(1)} km · ${Math.ceil(choice.duration / 60)} min`;
+      button.className = "route-choice";
+      button.textContent = `Route ${index + 1}  ·  ${Math.ceil(choice.duration / 60)} min  ·  ${(choice.distance / 1000).toFixed(1)} km`;
       button.onclick = () => {
         routing.select(index);
         journeyMap.showRoute(choice.route);
@@ -170,6 +264,7 @@ element("startNavigation").onclick = () => {
     if (!navigator.geolocation) throw Error("Geolocation unavailable");
     routing.accept((choice) => {
       activeChoice = choice;
+      mapPick = null;
       sessionActive = true;
       paused = false;
       attemptedReroute = false;
@@ -267,6 +362,7 @@ function endJourney(reason = "ended") {
   endSession(reason);
   disarmDeviceReliability();
   sessionActive = false;
+  mapPick = null;
   paused = false;
   element("locationStatus").textContent = "";
   element("ride").hidden = true;
@@ -357,3 +453,80 @@ window.addEventListener("online", () =>
 );
 
 window.addEventListener("online", () => journeyMap.tiles?.redraw());
+
+// Search results remain usable with a keyboard as well as touch.
+for (const kind of ["origin", "destination"]) {
+  const input = element(kind + "Search");
+  input.setAttribute("role", "combobox");
+  input.setAttribute("aria-autocomplete", "list");
+  input.setAttribute("aria-expanded", "false");
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      element(kind + "Results").firstElementChild?.focus();
+    }
+    if (e.key === "Escape") {
+      element(kind + "Results").replaceChildren();
+      input.setAttribute("aria-expanded", "false");
+    }
+  });
+  element(kind + "Results").addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      (e.key === "ArrowDown"
+        ? e.target.nextElementSibling
+        : e.target.previousElementSibling
+      )?.focus();
+    }
+    if (e.key === "Escape") {
+      input.focus();
+      element(kind + "Results").replaceChildren();
+      input.setAttribute("aria-expanded", "false");
+    }
+  });
+}
+
+element("searchMode").onchange = () => {
+  cancelSearches();
+  searchSessions.clear();
+  for (const kind of ["origin", "destination"]) {
+    element(kind + "Results").replaceChildren();
+    element(kind + "Search").setAttribute("aria-expanded", "false");
+  }
+  status("Search mode changed. Type an address or place to search again.");
+};
+
+if (!publicConfig.searchBox) {
+  element("searchMode").value = "addresses";
+  element("searchMode").closest(".search-mode").hidden = true;
+}
+let mapPick = null;
+for (const kind of ["origin", "destination"]) {
+  element(kind === "origin" ? "pickOrigin" : "pickDestination").onclick =
+    () => {
+      if (!client) {
+        status("Enable Mapbox to choose a point on the map");
+        return;
+      }
+      mapPick = kind;
+      status(
+        `Tap the map to choose your ${kind === "origin" ? "starting point" : "destination"}.`,
+      );
+      element("previewMap").scrollIntoView({
+        block: "center",
+        behavior: "smooth",
+      });
+    };
+}
+journeyMap.map?.on("click", (event) => {
+  if (!mapPick || sessionActive) return;
+  const kind = mapPick;
+  mapPick = null;
+  selectLocation(kind, {
+    coordinate: [event.latlng.lng, event.latlng.lat],
+    label: `Map pin (${event.latlng.lat.toFixed(5)}, ${event.latlng.lng.toFixed(5)})`,
+  });
+  status(
+    "Map point selected. Check that the pin is on a cycle-accessible road.",
+  );
+});
